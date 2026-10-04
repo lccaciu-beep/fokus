@@ -2107,3 +2107,170 @@ body.timer-running .tab[data-view="heute"]:not(.is-active) { color: var(--timer)
 .prio-form { grid-template-columns: minmax(0, 1fr); }
 #add-options,
 .select-row > * { min-width: 0; }
+
+
+/* =========================================================
+   Ergänzungen v1.6: Planen für morgen
+   ========================================================= */
+
+.segmented-2 { grid-template-columns: repeat(2, 1fr); }
+.plan-seg { margin: 0 0 14px; }
+
+#plan-card.is-tomorrow .plan-seg button[aria-pressed="true"] { color: var(--accent-strong); }
+
+.when-opt { --p: var(--accent); }
+
+.plan-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.plan-tag svg { width: 12px; height: 12px; }
+
+.upcoming-note .link-btn { margin-left: auto; min-height: 36px; font-size: 14px; }
+
+.plan-tomorrow-btn { margin-top: 16px; }
+.plan-tomorrow-btn svg { width: 18px; height: 18px; }
+
+
+/* =========================================================
+   Abend-Check v1.6.1: Energieleiste, Bremsklotz-Raster
+   ========================================================= */
+
+.ev-block {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.ev-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.card .ev-head h3 { font-size: 16px; font-weight: 600; color: var(--text); }
+.ev-head label { cursor: pointer; }
+
+.ev-value {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--e, var(--text-2));
+  transition: color .2s;
+}
+
+.ev-value.is-empty { font-weight: 500; color: var(--text-3); }
+.ev-optional { font-size: 13px; color: var(--text-3); }
+
+/* Energieleiste */
+.energy {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+  padding: 5px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.energy.lvl-1 { --e: var(--bad); }
+.energy.lvl-2 { --e: color-mix(in srgb, var(--bad) 50%, var(--warn)); }
+.energy.lvl-3 { --e: var(--warn); }
+.energy.lvl-4 { --e: color-mix(in srgb, var(--warn) 35%, var(--good)); }
+.energy.lvl-5 { --e: var(--good); }
+
+#evening-card:has(.energy.lvl-1) .ev-value { --e: var(--bad); }
+#evening-card:has(.energy.lvl-2) .ev-value { --e: color-mix(in srgb, var(--bad) 50%, var(--warn)); }
+#evening-card:has(.energy.lvl-3) .ev-value { --e: var(--warn); }
+#evening-card:has(.energy.lvl-4) .ev-value { --e: color-mix(in srgb, var(--warn) 35%, var(--good)); }
+#evening-card:has(.energy.lvl-5) .ev-value { --e: var(--good); }
+
+.energy button {
+  display: grid;
+  place-items: center;
+  min-height: 46px;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+}
+
+.energy button span {
+  width: 100%;
+  height: 100%;
+  min-height: 46px;
+  border-radius: 11px;
+  background: var(--surface-3);
+  transition: background-color .25s ease, transform .15s ease;
+}
+
+.energy button:active span { transform: scale(0.94); }
+.energy button.on span { background: var(--e); }
+.energy button:first-child span { border-radius: 11px 6px 6px 11px; }
+.energy button:last-child span { border-radius: 6px 11px 11px 6px; }
+
+/* Bremsklötze als gleichmäßiges Raster */
+.blocker-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.blocker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.25;
+  text-align: left;
+  color: var(--text);
+  transition: background-color .15s, border-color .15s, color .15s, transform .1s;
+}
+
+.blocker:active { transform: scale(0.97); }
+
+.blocker svg {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  color: var(--text-3);
+  transition: color .15s;
+}
+
+.blocker[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.blocker[aria-pressed="true"] svg { color: var(--accent-strong); }
+
+.blocker.is-good { grid-column: 1 / -1; justify-content: center; }
+
+.blocker.is-good[aria-pressed="true"] {
+  border-color: var(--good);
+  background: color-mix(in srgb, var(--good) 14%, transparent);
+  color: var(--good);
+}
+
+.blocker.is-good[aria-pressed="true"] svg { color: var(--good); }
+
+.ev-note { min-height: 96px; }
+
+.plan-tomorrow-btn { margin-top: 18px; }

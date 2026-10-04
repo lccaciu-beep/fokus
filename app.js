@@ -5,7 +5,7 @@
    To-do-Liste, Fokus-Timer, Abend-Check, Datensicherung
    ========================================================= */
 
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.1';
 const STORAGE_KEY = 'fokus-app-v1';
 const LONG_RUN_MIN = 180;   // ab hier fragen wir, ob der Timer vergessen wurde
 const BACKUP_REMIND_DAYS = 7;
@@ -84,6 +84,19 @@ const BLOCKERS = [
   { id: 'nichts', label: 'Nichts – lief gut' },
 ];
 
+/* Kurze Namen und Symbole für den Abend-Check */
+const BLOCKER_UI = {
+  handy: { short: 'Handy & Social Media', icon: '<rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 17.5h2"/>' },
+  meetings: { short: 'Meetings & Störungen', icon: '<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.3"/><path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6M15 14.6c2.4-.3 4.6 1 5.2 4.1"/>' },
+  muede: { short: 'Müdigkeit', icon: '<path d="M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10z"/>' },
+  unklar: { short: 'Unklare Aufgaben', icon: '<circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.5M12 16.8v.2"/>' },
+  zuviel: { short: 'Zu viel geplant', icon: '<path d="M12 3.5l8.5 4.5-8.5 4.5L3.5 8z"/><path d="M3.5 12l8.5 4.5 8.5-4.5M3.5 16l8.5 4.5 8.5-4.5"/>' },
+  aufgeschoben: { short: 'Aufgeschoben', icon: '<path d="M7 3.5h10M7 20.5h10M8 3.5c0 4 4 5 4 8.5s-4 4.5-4 8.5M16 3.5c0 4-4 5-4 8.5s4 4.5 4 8.5"/>' },
+  nichts: { short: 'Nichts – lief gut', icon: '<circle cx="12" cy="12" r="8.5"/><path d="M8.3 12.3l2.5 2.5 5-5.3"/>' },
+};
+
+const ENERGY_WORDS = ['', 'Leer', 'Müde', 'Okay', 'Gut', 'Voller Energie'];
+
 /* Vorschläge passend zu Studium und TikTok-Shop-Affiliate */
 const SUGGESTIONS = [
   { title: 'Vorlesung nacharbeiten und zusammenfassen', min: 60, area: 'studium' },
@@ -112,6 +125,7 @@ const ICONS = {
   trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor"/></svg>',
   repeat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.7M20 4v4.7h-4.7M20 12a8 8 0 0 1-13.7 5.6L4 15.3M4 20v-4.7h4.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  calendar: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 10h16M9 3v4M15 3v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
 };
 
@@ -119,6 +133,12 @@ const ICONS = {
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+/** Ereignis anhängen; fehlt das Element (z. B. kurz während eines Updates), wird es übersprungen */
+function on(sel, type, fn) {
+  const el = $(sel);
+  if (el) el.addEventListener(type, fn);
+}
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -177,6 +197,23 @@ function weekStart(d = new Date()) {
 }
 
 function daysBetween(a, b) { return Math.round((startOfDay(b) - startOfDay(a)) / DAY_MS); }
+function tomorrowKey() { return ymd(addDays(new Date(), 1)); }
+
+/** „Wann?“ → Startdatum (null = sofort sichtbar) */
+function resolveStart(choice, picked) {
+  if (choice === 'tomorrow') return tomorrowKey();
+  if (choice === 'pick' && /^\d{4}-\d{2}-\d{2}$/.test(picked || '') && picked > todayKey()) return picked;
+  return null;
+}
+
+function startChoiceOf(t) {
+  if (!t.startDate || t.startDate <= todayKey()) return 'today';
+  return t.startDate === tomorrowKey() ? 'tomorrow' : 'pick';
+}
+
+function shortDate(key) {
+  return parseYmd(key).toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' });
+}
 
 /** Kategorie eines Blocks (null = Block für eine Aufgabe der To-do-Liste) */
 function sessionCategory(s) { return s.priorityId ? null : (s.category || 'sonstiges'); }
@@ -342,6 +379,12 @@ function sortTasks(list) {
 function isVisible(t) { return !t.startDate || t.startDate <= todayKey(); }
 function openTasks() { return sortTasks(state.tasks.filter(t => !t.done && isVisible(t))); }
 function upcomingTasks() { return state.tasks.filter(t => !t.done && !isVisible(t)); }
+function plannedFor(key) { return sortTasks(state.tasks.filter(t => !t.done && t.startDate === key)); }
+function plannedLater() {
+  const tm = tomorrowKey();
+  return state.tasks.filter(t => !t.done && t.startDate && t.startDate > tm)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate) || prioOf(a.priority).rank - prioOf(b.priority).rank);
+}
 
 /** Fälligkeit als Text: „Heute fällig“, „Überfällig seit 2 Tagen“ … */
 function dueInfo(t) {
@@ -653,6 +696,8 @@ let suggestOpen = false;
 let newPrio = 'mittel';
 let newEst = null;
 let newArea = null;   // wird beim Start auf den zuletzt genutzten Bereich gesetzt
+let planDay = 'today';  // Ansicht der Liste: 'today' oder 'tomorrow'
+let newWhen = null;     // „Wann?“ beim Anlegen; null = passend zur Ansicht
 
 function blockCountLabel(n) { return `${n} ${n === 1 ? 'Block' : 'Blöcken'}`; }
 
@@ -671,6 +716,7 @@ function taskItem(t) {
     area ? `<span class="area-tag a-${area.id}"><i class="area-dot"></i>${area.short}</span>` : '',
     due ? `<span class="due-tag ${due.cls}">${due.text}</span>` : '',
     t.repeat ? `<span class="repeat-tag" aria-label="${labelOf(REPEATS, t.repeat)}">${ICONS.repeat}${labelOf(REPEATS, t.repeat)}</span>` : '',
+    t.startDate && t.startDate > tomorrowKey() ? `<span class="plan-tag">${ICONS.calendar}${shortDate(t.startDate)}</span>` : '',
   ].join('');
 
   let meta;
@@ -681,7 +727,7 @@ function taskItem(t) {
   const bar = est && !t.done
     ? `<span class="progress" aria-hidden="true"><span class="${over ? 'over' : ''}" style="width:${Math.min(100, (inv / est) * 100)}%"></span></span>`
     : '';
-  const action = t.done ? ''
+  const action = t.done || !isVisible(t) ? ''
     : isRunning ? '<span class="play-btn is-live" aria-hidden="true"><span class="pulse"></span></span>'
     : `<button type="button" class="play-btn" data-action="start" aria-label="Fokus für „${esc(t.title)}“ starten">${ICONS.play}</button>`;
 
@@ -700,6 +746,15 @@ function taskItem(t) {
 }
 
 function renderTasks() {
+  $$('#plan-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.plan === planDay)));
+  const tmCount = plannedFor(tomorrowKey()).length;
+  $('#plan-seg [data-plan="tomorrow"]').textContent = tmCount ? `Morgen (${tmCount})` : 'Morgen';
+  $('#plan-card').classList.toggle('is-tomorrow', planDay === 'tomorrow');
+  $('#prio-title').placeholder = planDay === 'tomorrow' ? 'Aufgabe für morgen …' : 'Neue Aufgabe …';
+  if (planDay === 'tomorrow') { renderTomorrow(); return; }
+
+  $('#later-box').hidden = true;
+  $('#btn-add-block').hidden = false;
   const open = openTasks();
   const done = doneToday();
   const list = $('#prio-list');
@@ -722,11 +777,11 @@ function renderTasks() {
   $('#upcoming-note').hidden = !upcoming.length;
   if (upcoming.length) {
     const next = upcoming.reduce((a, b) => (a.startDate < b.startDate ? a : b));
-    const when = daysBetween(new Date(), parseYmd(next.startDate)) === 1 ? 'morgen'
-      : `am ${parseYmd(next.startDate).toLocaleDateString('de-DE', { weekday: 'long' })}`;
-    $('#upcoming-note').innerHTML = `${ICONS.repeat}<span>${upcoming.length === 1
-      ? `„${esc(next.title)}“ erscheint ${when} wieder.`
-      : `${upcoming.length} wiederkehrende Aufgaben erscheinen später wieder, die nächste ${when}.`}</span>`;
+    const text = tmCount
+      ? `${tmCount === 1 ? '1 Aufgabe ist' : `${tmCount} Aufgaben sind`} für morgen geplant.`
+      : `${upcoming.length === 1 ? '1 Aufgabe ist' : `${upcoming.length} Aufgaben sind`} für später geplant, die nächste für ${parseYmd(next.startDate).toLocaleDateString('de-DE', { weekday: 'long' })}.`;
+    $('#upcoming-note').innerHTML = `${ICONS.calendar}<span>${text}</span>
+      <button type="button" class="link-btn" data-plan-go="tomorrow">Ansehen</button>`;
   }
   $('#btn-sort').hidden = open.length < 2;
   $('#prio-form').classList.toggle('is-first', !open.length && !done.length);
@@ -736,9 +791,66 @@ function renderTasks() {
   renderOthers();
 }
 
+/** Morgen-Ansicht: für morgen Geplantes, darunter spätere Tage */
+function renderTomorrow() {
+  const list = $('#prio-list');
+  const items = plannedFor(tomorrowKey());
+  const later = plannedLater();
+  const tm = addDays(new Date(), 1).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  list.innerHTML = items.length
+    ? items.map(taskItem).join('')
+    : `<li class="empty">Für ${tm} ist noch nichts geplant. Was willst du morgen schaffen? Die Aufgaben erscheinen morgen früh automatisch in deiner Liste.</li>`;
+
+  $('#plan-count').textContent = items.length ? `${items.length} geplant` : '';
+  $('#btn-sort').hidden = items.length < 2;
+  $('#btn-sort').textContent = (SORTS.find(x => x.id === state.meta.taskSort) || SORTS[0]).label;
+  $('#upcoming-note').hidden = true;
+  $('#done-box').hidden = true;
+  $('#others-box').hidden = true;
+  $('#btn-add-block').hidden = true;
+  $('#prio-form').classList.toggle('is-first', !items.length);
+
+  const box = $('#later-box');
+  box.hidden = !later.length;
+  $('#later-count').textContent = later.length;
+  $('#later-list').innerHTML = later.map(taskItem).join('');
+
+  renderAddOptions();
+  renderSuggestions();
+}
+
+function setPlanDay(day, scroll) {
+  planDay = day;
+  newWhen = null;
+  renderTasks();
+  if (scroll) $('#plan-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function currentWhen() { return newWhen || (planDay === 'tomorrow' ? 'tomorrow' : 'today'); }
+
+function renderWhenPicker(container, value, onPick) {
+  const opts = [{ id: 'today', label: 'Heute' }, { id: 'tomorrow', label: 'Morgen' }, { id: 'pick', label: 'Datum …' }];
+  container.innerHTML = opts.map(o =>
+    `<button type="button" class="prio-opt when-opt" data-when="${o.id}" aria-pressed="${o.id === value}">${o.label}</button>`
+  ).join('');
+  container.onclick = e => {
+    const btn = e.target.closest('button[data-when]');
+    if (btn) onPick(btn.dataset.when);
+  };
+}
+
 function renderAddOptions() {
   const hasText = !!$('#prio-title').value.trim();
   $('#add-options').hidden = !hasText;
+  const when = currentWhen();
+  renderWhenPicker($('#new-when'), when, v => {
+    newWhen = v;
+    renderAddOptions();
+    if (v === 'pick') $('#new-when-date').focus();
+  });
+  $('#new-when-date').hidden = when !== 'pick';
+  $('#new-when-date').min = tomorrowKey();
   renderPrioPicker($('#new-prio'), newPrio, v => { newPrio = v; renderAddOptions(); });
   renderAreaPicker($('#new-area'), newArea, v => { newArea = v; renderAddOptions(); });
   $('#new-due-date').hidden = $('#new-due').value !== 'pick';
@@ -751,7 +863,7 @@ function renderSuggestions() {
   const taken = new Set(state.tasks.filter(t => !t.done).map(t => t.title.toLowerCase()));
   const pool = SUGGESTIONS.filter(x => !taken.has(x.title.toLowerCase()));
   const typing = !!$('#prio-title').value.trim();
-  const auto = openTasks().length < 3;
+  const auto = (planDay === 'tomorrow' ? plannedFor(tomorrowKey()) : openTasks()).length < 3;
   const visible = !typing && pool.length > 0 && (auto || suggestOpen);
 
   $('#btn-suggest-toggle').hidden = typing || auto || !pool.length;
@@ -782,6 +894,8 @@ function resetAddForm() {
   $('#new-due').value = '';
   $('#new-due-date').value = '';
   $('#new-repeat').value = '';
+  $('#new-when-date').value = '';
+  newWhen = null;
 }
 
 function addTask(e) {
@@ -789,8 +903,16 @@ function addTask(e) {
   const input = $('#prio-title');
   const title = input.value.trim();
   if (!title) { input.focus(); return; }
+  const when = currentWhen();
+  if (when === 'pick' && !resolveStart('pick', $('#new-when-date').value)) {
+    toast('Bitte ein Datum ab morgen wählen.');
+    $('#new-when-date').focus();
+    return;
+  }
+  const startDate = resolveStart(when, $('#new-when-date').value);
   pushTask({
     title,
+    startDate,
     priority: newPrio,
     estimateMin: newEst,
     area: newArea,
@@ -802,13 +924,19 @@ function addTask(e) {
   renderTasks();
   renderTimer();
   renderEvening();
+  if (startDate && planDay === 'today') {
+    toast(`Geplant für ${startDate === tomorrowKey() ? 'morgen' : shortDate(startDate)}`, { label: 'Ansehen', fn: () => setPlanDay('tomorrow') });
+  }
 }
 
 function onSuggestClick(e) {
   const chip = e.target.closest('.suggest-chip');
   if (!chip) return;
   const sug = SUGGESTIONS.find(x => x.title === chip.dataset.title) || {};
-  pushTask({ title: chip.dataset.title, estimateMin: Number(chip.dataset.min), area: sug.area || null, repeat: sug.repeat || null });
+  pushTask({
+    title: chip.dataset.title, estimateMin: Number(chip.dataset.min), area: sug.area || null, repeat: sug.repeat || null,
+    startDate: planDay === 'tomorrow' ? tomorrowKey() : null,
+  });
   renderTasks();
   renderTimer();
   renderEvening();
@@ -887,6 +1015,7 @@ function renderOthers() {
 let editId = null;
 let editPrio = 'mittel';
 let editArea = null;
+let editWhen = 'today';
 
 function openEditSheet(t) {
   editId = t.id;
@@ -895,6 +1024,9 @@ function openEditSheet(t) {
   $('#edit-title').value = t.title;
   updateEditPrio();
   updateEditArea();
+  editWhen = startChoiceOf(t);
+  $('#edit-when-date').value = editWhen === 'pick' ? t.startDate : '';
+  updateEditWhen();
   $('#edit-due').value = t.dueDate ? 'pick' : '';
   $('#edit-due-date').value = t.dueDate || '';
   $('#edit-due-date').hidden = !t.dueDate;
@@ -912,6 +1044,16 @@ function openEditSheet(t) {
 
 function updateEditPrio() {
   renderPrioPicker($('#edit-prio'), editPrio, v => { editPrio = v; updateEditPrio(); });
+}
+
+function updateEditWhen() {
+  renderWhenPicker($('#edit-when'), editWhen, v => {
+    editWhen = v;
+    updateEditWhen();
+    if (v === 'pick') $('#edit-when-date').focus();
+  });
+  $('#edit-when-date').hidden = editWhen !== 'pick';
+  $('#edit-when-date').min = tomorrowKey();
 }
 
 function updateEditArea() {
@@ -935,6 +1077,12 @@ function saveEdit() {
   t.estimateMin = $('#edit-est').value ? Number($('#edit-est').value) : null;
   t.dueDate = resolveDue($('#edit-due').value, $('#edit-due-date').value);
   t.repeat = $('#edit-repeat').value || null;
+  if (editWhen === 'pick' && !resolveStart('pick', $('#edit-when-date').value)) {
+    toast('Bitte ein Datum ab morgen wählen.');
+    $('#edit-when-date').focus();
+    return;
+  }
+  t.startDate = resolveStart(editWhen, $('#edit-when-date').value);
   if (t.area) state.meta.lastArea = t.area;
   saveState();
   closeSheet('#edit-sheet');
@@ -1423,14 +1571,34 @@ function renderDaySummary() {
 function renderEvening() {
   renderDaySummary();
   const ev = (getDay(todayKey()) || {}).evening || {};
-  renderRating($('#energy-rating'), ev.energy || 0, v => updateEvening({ energy: v }));
+  renderEnergy(ev.energy || 0);
 
-  $('#blocker-chips').innerHTML = BLOCKERS.map(b =>
-    `<button type="button" class="chip" data-id="${b.id}" aria-pressed="${ev.blocker === b.id}">${esc(b.label)}</button>`
-  ).join('');
+  $('#blocker-chips').innerHTML = BLOCKERS.map(b => {
+    const ui = BLOCKER_UI[b.id];
+    return `<button type="button" class="blocker ${b.id === 'nichts' ? 'is-good' : ''}" data-id="${b.id}" aria-pressed="${ev.blocker === b.id}">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ui.icon}</svg>
+      <span>${esc(ui.short)}</span>
+    </button>`;
+  }).join('');
 
   const note = $('#evening-note');
   if (document.activeElement !== note) note.value = ev.note || '';
+}
+
+/** Energieleiste: füllt sich bis zur gewählten Stufe */
+function renderEnergy(value) {
+  const box = $('#energy-rating');
+  box.className = `energy ${value ? `lvl-${value}` : ''}`;
+  box.innerHTML = [1, 2, 3, 4, 5].map(n =>
+    `<button type="button" data-value="${n}" class="${n <= value ? 'on' : ''}" aria-pressed="${n === value}"
+      aria-label="Energie ${n} von 5: ${ENERGY_WORDS[n]}"><span></span></button>`
+  ).join('');
+  box.onclick = e => {
+    const btn = e.target.closest('button[data-value]');
+    if (btn) updateEvening({ energy: Number(btn.dataset.value) });
+  };
+  $('#energy-value').textContent = value ? ENERGY_WORDS[value] : 'Tippe auf die Leiste';
+  $('#energy-value').classList.toggle('is-empty', !value);
 }
 
 function updateEvening(patch, rerender = true) {
@@ -1446,7 +1614,7 @@ function updateEvening(patch, rerender = true) {
 }
 
 function onBlockerClick(e) {
-  const chip = e.target.closest('.chip');
+  const chip = e.target.closest('.blocker');
   if (!chip) return;
   const cur = ((getDay(todayKey()) || {}).evening || {}).blocker;
   updateEvening({ blocker: cur === chip.dataset.id ? null : chip.dataset.id });
@@ -1489,6 +1657,7 @@ function setTheme(pref) {
    ========================================================= */
 
 let currentView = 'heute';
+let lastRenderDay = todayKey();
 
 function showView(name) {
   currentView = name;
@@ -1596,84 +1765,91 @@ function importData(e) {
    ========================================================= */
 
 function bindEvents() {
-  $('#prio-form').addEventListener('submit', addTask);
-  $('#prio-list').addEventListener('click', onTaskClick);
-  $('#done-list').addEventListener('click', onTaskClick);
-  $('#prio-title').addEventListener('input', () => { renderAddOptions(); renderSuggestions(); });
-  $('#prio-est-chips').addEventListener('click', e => {
+  on('#prio-form', 'submit', addTask);
+  on('#prio-list', 'click', onTaskClick);
+  on('#done-list', 'click', onTaskClick);
+  on('#later-list', 'click', onTaskClick);
+  on('#plan-seg', 'click', e => {
+    const b = e.target.closest('button[data-plan]');
+    if (b) setPlanDay(b.dataset.plan);
+  });
+  on('#upcoming-note', 'click', e => { if (e.target.closest('[data-plan-go]')) setPlanDay('tomorrow'); });
+  on('#btn-plan-tomorrow', 'click', () => setPlanDay('tomorrow', true));
+  on('#prio-title', 'input', () => { renderAddOptions(); renderSuggestions(); });
+  on('#prio-est-chips', 'click', e => {
     const chip = e.target.closest('button[data-min]');
     if (!chip) return;
     const m = Number(chip.dataset.min);
     newEst = newEst === m ? null : m;
     renderAddOptions();
   });
-  $('#btn-sort').addEventListener('click', () => {
+  on('#btn-sort', 'click', () => {
     const i = SORTS.findIndex(x => x.id === state.meta.taskSort);
     state.meta.taskSort = SORTS[(i + 1) % SORTS.length].id;
     saveState();
     renderTasks();
     renderTimer();
   });
-  $('#suggest-chips').addEventListener('click', onSuggestClick);
-  $('#btn-suggest-more').addEventListener('click', () => { suggestOffset += SUGGEST_COUNT; renderSuggestions(); });
-  $('#btn-suggest-toggle').addEventListener('click', () => { suggestOpen = !suggestOpen; renderSuggestions(); });
-  $('#others-box').addEventListener('click', onBlockDeleteClick);
-  $('#edit-blocks').addEventListener('click', onBlockDeleteClick);
-  $('#edit-delete').addEventListener('click', deleteEditTask);
-  $('#new-due').addEventListener('change', () => {
+  on('#suggest-chips', 'click', onSuggestClick);
+  on('#btn-suggest-more', 'click', () => { suggestOffset += SUGGEST_COUNT; renderSuggestions(); });
+  on('#btn-suggest-toggle', 'click', () => { suggestOpen = !suggestOpen; renderSuggestions(); });
+  on('#others-box', 'click', onBlockDeleteClick);
+  on('#edit-blocks', 'click', onBlockDeleteClick);
+  on('#edit-delete', 'click', deleteEditTask);
+  on('#new-due', 'change', () => {
     renderAddOptions();
     if ($('#new-due').value === 'pick') $('#new-due-date').focus();
   });
-  $('#edit-due').addEventListener('change', () => {
+  on('#edit-due', 'change', () => {
     $('#edit-due-date').hidden = $('#edit-due').value !== 'pick';
     if ($('#edit-due').value === 'pick') $('#edit-due-date').focus();
   });
 
-  $('#week-card').addEventListener('click', e => { if (e.target.closest('[data-action="goals"]')) openGoalsSheet(); });
-  $('#btn-goals').addEventListener('click', openGoalsSheet);
-  $('#goals-list').addEventListener('click', onGoalStep);
-  $('#goals-save').addEventListener('click', saveGoals);
-  $('#goals-cancel').addEventListener('click', () => closeSheet('#goals-sheet'));
+  on('#week-card', 'click', e => { if (e.target.closest('[data-action="goals"]')) openGoalsSheet(); });
+  on('#btn-goals', 'click', openGoalsSheet);
+  on('#goals-list', 'click', onGoalStep);
+  on('#goals-save', 'click', saveGoals);
+  on('#goals-cancel', 'click', () => closeSheet('#goals-sheet'));
 
-  $('#backup-now').addEventListener('click', exportData);
-  $('#backup-later').addEventListener('click', () => {
+  on('#backup-now', 'click', exportData);
+  on('#backup-later', 'click', () => {
     state.meta.backupSnooze = Date.now() + 3 * DAY_MS;
     saveState();
     renderBackupBanner();
   });
 
-  $('#focus-target').addEventListener('change', onTargetChange);
-  $('#focus-other').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); startFocus(); } });
-  $('#btn-start').addEventListener('click', startFocus);
-  $('#btn-stop').addEventListener('click', stopFocus);
-  $('#distr-grid').addEventListener('click', countDistraction);
+  on('#focus-target', 'change', onTargetChange);
+  on('#focus-other', 'keydown', e => { if (e.key === 'Enter') { e.preventDefault(); startFocus(); } });
+  on('#btn-start', 'click', startFocus);
+  on('#btn-stop', 'click', stopFocus);
+  on('#distr-grid', 'click', countDistraction);
 
-  $('#finish-save').addEventListener('click', saveFinish);
-  $('#finish-resume').addEventListener('click', resumeFocus);
-  $('#finish-discard').addEventListener('click', discardFocus);
-  $('#finish-adjust').addEventListener('click', () => {
+  on('#finish-save', 'click', saveFinish);
+  on('#finish-resume', 'click', resumeFocus);
+  on('#finish-discard', 'click', discardFocus);
+  on('#finish-adjust', 'click', () => {
     $('#finish-adjust-box').hidden = false;
     $('#finish-adjust').hidden = true;
     $('#finish-minutes').focus();
   });
 
-  $('#btn-add-block').addEventListener('click', openAddSheet);
-  $('#add-target').addEventListener('change', updateAddForm);
-  $('#add-save').addEventListener('click', saveAdd);
-  $('#add-cancel').addEventListener('click', () => closeSheet('#add-sheet'));
+  on('#btn-add-block', 'click', openAddSheet);
+  on('#add-target', 'change', updateAddForm);
+  on('#add-save', 'click', saveAdd);
+  on('#add-cancel', 'click', () => closeSheet('#add-sheet'));
 
-  $('#edit-save').addEventListener('click', saveEdit);
-  $('#edit-cancel').addEventListener('click', () => closeSheet('#edit-sheet'));
-  $('#edit-title').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveEdit(); } });
+  on('#edit-save', 'click', saveEdit);
+  on('#edit-cancel', 'click', () => closeSheet('#edit-sheet'));
+  on('#edit-title', 'keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveEdit(); } });
 
   // Tipp auf den abgedunkelten Hintergrund schließt einfache Sheets
   $$('.sheet-backdrop[data-dismiss]').forEach(bd => bd.addEventListener('click', e => {
     if (e.target === bd) closeSheet(`#${bd.id}`);
   }));
 
-  $('#blocker-chips').addEventListener('click', onBlockerClick);
-  $('#evening-note').addEventListener('input', onNoteInput);
-  $('#evening-note').addEventListener('blur', () => {
+  on('#blocker-chips', 'click', onBlockerClick);
+  on('#evening-note', 'input', onNoteInput);
+  on('#evening-note', 'blur', () => {
     clearTimeout(noteTimer);
     const val = $('#evening-note').value.trim();
     const cur = ((getDay(todayKey()) || {}).evening || {}).note || '';
@@ -1685,7 +1861,7 @@ function bindEvents() {
   $$('[data-theme-toggle]').forEach(b => b.addEventListener('click', () => {
     setTheme(document.documentElement.classList.contains('is-dark') ? 'light' : 'dark');
   }));
-  $('#theme-seg').addEventListener('click', e => {
+  on('#theme-seg', 'click', e => {
     const b = e.target.closest('button[data-theme-value]');
     if (b) setTheme(b.dataset.themeValue);
   });
@@ -1693,15 +1869,16 @@ function bindEvents() {
     darkQuery.addEventListener('change', () => { if (themePref() === 'system') applyTheme('system'); });
   }
 
-  $('#btn-export').addEventListener('click', exportData);
-  $('#btn-import').addEventListener('click', () => $('#import-file').click());
-  $('#import-file').addEventListener('change', importData);
+  on('#btn-export', 'click', exportData);
+  on('#btn-import', 'click', () => $('#import-file').click());
+  on('#import-file', 'change', importData);
 
   // Zurück aus dem Hintergrund / nach dem Entsperren: alles neu berechnen
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     const fresh = loadState();
     if (fresh) state = fresh;
+    if (lastRenderDay !== todayKey()) { planDay = 'today'; lastRenderDay = todayKey(); }
     if (state.running && !state.running.stopAt) startTicking();
     if (currentView === 'heute') renderToday();
     else renderAuswertung();

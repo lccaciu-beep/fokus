@@ -849,7 +849,7 @@ function renderStats() {
 /* ---------- Interaktion ---------- */
 
 document.addEventListener('DOMContentLoaded', () => {
-  $('#range-seg').addEventListener('click', e => {
+  on('#range-seg', 'click', e => {
     const btn = e.target.closest('button[data-range]');
     if (!btn) return;
     state.meta.statsMode = btn.dataset.range;
@@ -862,9 +862,9 @@ document.addEventListener('DOMContentLoaded', () => {
     renderStats();
   });
 
-  $('#cal-box').addEventListener('click', onCalendarClick);
+  on('#cal-box', 'click', onCalendarClick);
 
-  $('#stats-content').addEventListener('click', e => {
+  on('#stats-content', 'click', e => {
     // Einzeltag: Vortag / Folgetag
     const dayBtn = e.target.closest('button[data-day]');
     if (dayBtn && !dayBtn.disabled) {

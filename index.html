@@ -115,6 +115,10 @@
             <button type="button" class="sort-btn" id="btn-sort" aria-label="Sortierung wechseln">Nach Priorität</button>
           </div>
         </div>
+        <div class="segmented segmented-2 plan-seg" id="plan-seg" role="group" aria-label="Welcher Tag">
+          <button type="button" data-plan="today">Heute</button>
+          <button type="button" data-plan="tomorrow">Morgen</button>
+        </div>
         <ul class="prio-list" id="prio-list"></ul>
         <p class="upcoming-note" id="upcoming-note" hidden></p>
 
@@ -127,6 +131,9 @@
             </button>
           </div>
           <div id="add-options" hidden>
+            <p class="est-label">Wann?</p>
+            <div class="prio-picker" id="new-when" role="group" aria-label="Wann"></div>
+            <input id="new-when-date" class="input input-gap" type="date" aria-label="Geplant für" hidden>
             <p class="est-label">Priorität</p>
             <div class="prio-picker" id="new-prio" role="group" aria-label="Priorität"></div>
             <p class="est-label">Bereich</p>
@@ -155,6 +162,11 @@
           <button type="button" class="link-btn suggest-toggle" id="btn-suggest-toggle" hidden>Vorschläge anzeigen</button>
         </form>
 
+        <details class="done-box" id="later-box" hidden>
+          <summary>Danach geplant <span class="done-count" id="later-count">0</span></summary>
+          <ul class="prio-list" id="later-list"></ul>
+        </details>
+
         <details class="done-box" id="done-box" hidden>
           <summary>Heute erledigt <span class="done-count" id="done-count">0</span></summary>
           <ul class="prio-list" id="done-list"></ul>
@@ -175,15 +187,33 @@
           <span class="saved-indicator" id="evening-saved" aria-live="polite"></span>
         </div>
         <div class="day-summary" id="day-summary" aria-label="Tagesbilanz"></div>
-        <p class="field-label">Wie war deine Energie heute?</p>
-        <div class="rating" id="energy-rating" role="group" aria-label="Energie von 1 bis 5"></div>
-        <div class="rating-scale"><span>leer</span><span>voller Energie</span></div>
+        <div class="ev-block">
+          <div class="ev-head">
+            <h3>Wie war deine Energie?</h3>
+            <span class="ev-value" id="energy-value"></span>
+          </div>
+          <div class="energy" id="energy-rating" role="group" aria-label="Energie von 1 bis 5"></div>
+          <div class="rating-scale"><span>leer</span><span>voller Energie</span></div>
+        </div>
 
-        <p class="field-label">Was hat dich heute am meisten gebremst?</p>
-        <div class="chips" id="blocker-chips" role="group" aria-label="Größter Bremsklotz"></div>
+        <div class="ev-block">
+          <div class="ev-head">
+            <h3>Was hat dich am meisten gebremst?</h3>
+          </div>
+          <div class="blocker-grid" id="blocker-chips" role="group" aria-label="Größter Bremsklotz"></div>
+        </div>
 
-        <label class="field-label" for="evening-note">Notiz <span class="muted">(optional)</span></label>
-        <textarea id="evening-note" class="input" rows="3" maxlength="500" placeholder="Was nimmst du mit für morgen?"></textarea>
+        <div class="ev-block">
+          <div class="ev-head">
+            <label for="evening-note"><h3>Notiz für dich</h3></label>
+            <span class="ev-optional">optional</span>
+          </div>
+          <textarea id="evening-note" class="input ev-note" rows="3" maxlength="500" placeholder="Was lief gut? Was machst du morgen anders?"></textarea>
+        </div>
+        <button type="button" class="btn btn-secondary plan-tomorrow-btn" id="btn-plan-tomorrow">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 10h16M9 3v4M15 3v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Morgen planen
+        </button>
       </section>
     </main>
 
@@ -344,6 +374,9 @@
       <h2 id="edit-heading">Aufgabe bearbeiten</h2>
       <label class="field-label" for="edit-title">Titel</label>
       <input id="edit-title" class="input" type="text" maxlength="80" autocomplete="off" enterkeyhint="done">
+      <p class="field-label">Wann?</p>
+      <div class="prio-picker" id="edit-when" role="group" aria-label="Wann"></div>
+      <input id="edit-when-date" class="input input-gap" type="date" aria-label="Geplant für" hidden>
       <p class="field-label">Priorität</p>
       <div class="prio-picker" id="edit-prio" role="group" aria-label="Priorität"></div>
       <p class="field-label">Bereich</p>

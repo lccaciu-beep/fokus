@@ -13,6 +13,7 @@ Die App: **https://lccaciu-beep.github.io/fokus/**
 ## So funktioniert die App
 
 - **To-do-Liste:** Aufgaben mit Priorität (Hoch, Mittel, Niedrig), Bereich (Studium, TikTok Shop, Privat), optionaler Dauer, Fälligkeitsdatum und Wiederholung (täglich, werktags, wöchentlich). Offene Aufgaben bleiben stehen, bis du sie abhakst. Mit **▶** startest du den Timer direkt für eine Aufgabe.
+- **Planen:** Oben in der To-do-Liste auf **„Morgen“** tippen (oder im Abend-Check auf **„Morgen planen“**) und die Liste für morgen vorbereiten. Die Aufgaben erscheinen am nächsten Tag automatisch. Über **„Wann?“ › „Datum …“** lassen sich Aufgaben auch für spätere Tage planen.
 - **Wochenziele:** Stunden pro Bereich unter „Diese Woche“ festlegen. Das Zifferblatt zeigt deinen Wochenfortschritt.
 - **Fokus-Timer:** läuft weiter, auch wenn das Handy gesperrt ist. Ablenkungen per Tipp zählen, am Ende die Konzentration bewerten.
 - **Abend-Check:** Energie, größter Bremsklotz und eine Notiz. Wird automatisch gespeichert.
