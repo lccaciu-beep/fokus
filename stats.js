@@ -211,7 +211,7 @@ function computeStats(range) {
     areaMin[a] = (areaMin[a] || 0) + sessionMin(s);
   }
   const areas = [
-    ...AREAS.map(a => ({ id: a.id, label: a.label, count: areaMin[a.id] || 0, cls: `c-area-${a.id}` })),
+    ...AREAS.map(a => ({ id: a.id, label: a.label, count: areaMin[a.id] || 0, color: areaColor(a) })),
     { id: 'none', label: 'Ohne Bereich', count: areaMin.none || 0, cls: 'c-area-none' },
     { id: 'other', label: 'Andere Tätigkeiten', count: areaMin.other || 0, cls: 'c-area-none' },
   ].sort((a, b) => b.count - a.count);
@@ -313,7 +313,7 @@ function buildInsights(st) {
         score: 44 + (0.6 - ratio) * 45,
         title: `${a.label} kommt zu kurz`,
         text: `Dein Ziel sind ${fmtMin(goal)} pro Woche. In diesem Zeitraum wären das ${fmtMin(expected)} gewesen, geschafft hast du ${fmtMin(got)} (${pct(ratio)} %).`,
-        tip: AREA_TIPS[a.id],
+        tip: AREA_TIPS[a.id] || `Plane feste Blöcke für ${a.label} ein und starte sie direkt mit ▶ an der Aufgabe.`,
       });
     }
   }
@@ -543,7 +543,7 @@ function chartRanking(items, emptyText, fmtValue) {
       <text class="lbl" x="0" y="${yy + 14}">${esc(r.label)}</text>
       <text class="val" x="${W}" y="${yy + 14}" text-anchor="end">${fmtValue ? fmtValue(r.count) : `${r.count}×`} (${pct(r.count / total)} %)</text>
       <rect x="0" y="${yy + 22}" width="${W}" height="10" rx="5" class="track"/>
-      <rect x="0" y="${yy + 22}" width="${w}" height="10" rx="5" class="${r.cls || (i === 0 ? 'c-prio' : 'c-prio-dim')}"/>`;
+      <rect x="0" y="${yy + 22}" width="${w}" height="10" rx="5" ${r.color ? `style="fill:${r.color}"` : `class="${r.cls || (i === 0 ? 'c-prio' : 'c-prio-dim')}"`}/>`;
   }).join('');
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Rangliste">${body}</svg>`;
 }
@@ -610,9 +610,9 @@ function renderGoalCompare(st) {
   return `<div class="goal-compare">${rows.map(a => {
     const expected = state.meta.goals[a.id] * st.days.length / 7;
     const got = st.areaMin[a.id] || 0;
-    return `<div class="goal-row a-${a.id}">
+    return `<div class="goal-row" style="${areaVar(a)}">
       <div class="goal-top">
-        <span class="goal-name"><i class="area-dot"></i>Ziel ${a.label}</span>
+        <span class="goal-name"><i class="area-dot"></i>Ziel ${esc(a.label)}</span>
         <span class="goal-val ${got >= expected ? 'is-reached' : ''}">${pct(got / expected)} %</span>
       </div>
       <span class="goal-bar"><span style="width:${Math.min(100, (got / expected) * 100)}%"></span></span>

@@ -5,7 +5,7 @@
    To-do-Liste, Fokus-Timer, Abend-Check, Datensicherung
    ========================================================= */
 
-const APP_VERSION = '1.6.3';
+const APP_VERSION = '1.7.0';
 const STORAGE_KEY = 'fokus-app-v1';
 const LONG_RUN_MIN = 180;   // ab hier fragen wir, ob der Timer vergessen wurde
 const BACKUP_REMIND_DAYS = 7;
@@ -28,15 +28,34 @@ const PRIORITIES = [
   { id: 'niedrig', label: 'Niedrig', rank: 2 },
 ];
 
-/* Lebensbereiche für Aufgaben, Wochenziele und Auswertung */
-const AREAS = [
-  { id: 'studium', label: 'Studium', short: 'Studium', rec: 15,
-    why: 'Selbststudium neben den Vorlesungen. In der Prüfungsphase eher 20–25 h.' },
-  { id: 'tiktok', label: 'TikTok Shop', short: 'TikTok', rec: 7,
-    why: 'Reicht für etwa ein Video pro Tag mit Recherche, Dreh, Schnitt und Posten.' },
-  { id: 'privat', label: 'Privat', short: 'Privat', rec: 3,
-    why: 'Für Erledigungen und Organisatorisches.' },
+/* Lebensbereiche für Aufgaben, Wochenziele und Auswertung (in der App änderbar) */
+const AREA_COLORS = ['indigo', 'pink', 'teal', 'amber', 'violet', 'green', 'sky'];
+const MAX_AREAS = 6;
+
+const DEFAULT_AREAS = [
+  { id: 'studium', label: 'Studium', color: 'indigo' },
+  { id: 'tiktok', label: 'TikTok Shop', color: 'pink' },
+  { id: 'privat', label: 'Privat', color: 'teal' },
 ];
+
+/* Empfehlungen für die Standardbereiche (Wochenstunden) */
+const AREA_RECS = {
+  studium: { rec: 15, why: 'Selbststudium neben den Vorlesungen. In der Prüfungsphase eher 20–25 h.' },
+  tiktok: { rec: 7, why: 'Reicht für etwa ein Video pro Tag mit Recherche, Dreh, Schnitt und Posten.' },
+  privat: { rec: 3, why: 'Für Erledigungen und Organisatorisches.' },
+};
+
+function areaShort(label) { return label.length > 10 ? label.split(' ')[0].slice(0, 12) : label; }
+
+function decorateArea(a) {
+  const r = AREA_RECS[a.id] || {};
+  return { ...a, short: areaShort(a.label), rec: r.rec || null, why: r.why || '' };
+}
+
+let AREAS = DEFAULT_AREAS.map(decorateArea);
+
+/** Farbe eines Bereichs als CSS-Variable (für style="…") */
+function areaVar(a) { return `--a: var(--c-${a && a.color ? a.color : 'indigo'})`; }
 
 const REPEATS = [
   { id: '', label: 'Nie' },
@@ -105,12 +124,12 @@ const SUGGESTIONS = [
   { title: 'Vorlesung nacharbeiten und zusammenfassen', min: 60, area: 'studium' },
   { title: 'Hooks für 5 Videos schreiben', min: 30, area: 'tiktok' },
   { title: 'Karteikarten für die Prüfung erstellen', min: 45, area: 'studium' },
-  { title: '3 Produktvideos drehen', min: 60, area: 'tiktok' },
+  { title: '3 Produktvideos drehen', min: 60, area: 'tiktok', steps: ['Produkte auswählen', 'Hooks schreiben', 'Drehen'] },
   { title: 'Übungsblatt bearbeiten', min: 60, area: 'studium' },
-  { title: '1 Video posten', min: 30, area: 'tiktok', repeat: 'daily' },
+  { title: '1 Video posten', min: 30, area: 'tiktok', repeat: 'daily', steps: ['Hook schreiben', 'Drehen', 'Schneiden', 'Posten'] },
   { title: 'Altklausur unter Prüfungsbedingungen lösen', min: 90, area: 'studium' },
   { title: '5 neue Produkte im Affiliate-Marktplatz auswählen', min: 30, area: 'tiktok' },
-  { title: 'Hausarbeit: eine Seite schreiben', min: 60, area: 'studium' },
+  { title: 'Hausarbeit: eine Seite schreiben', min: 60, area: 'studium', steps: ['Stichpunkte sammeln', 'Rohfassung schreiben', 'Überarbeiten'] },
   { title: 'Samples bei 3 Shops anfragen', min: 30, area: 'tiktok' },
   { title: 'Literatur für die Hausarbeit recherchieren', min: 45, area: 'studium' },
   { title: '10 virale Produktvideos analysieren', min: 45, area: 'tiktok' },
@@ -128,6 +147,8 @@ const ICONS = {
   trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor"/></svg>',
   repeat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.7M20 4v4.7h-4.7M20 12a8 8 0 0 1-13.7 5.6L4 15.3M4 20v-4.7h4.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  flame: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.4 2.4-5.4 3.6-7.6.3 1.6 1.2 2.8 2.3 3.4.2-3 1.6-5.7 4-7.6-.4 2.6.5 4.6 1.9 6.5 1 1.4 1.7 2.9 1.7 4.9C19 18.2 16.1 21 12 21z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+  steps: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3.5 6l1.2 1.2L7 5M3.5 12l1.2 1.2L7 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="5" cy="18" r="1.4" fill="currentColor"/></svg>',
   calendar: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 10h16M9 3v4M15 3v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
 };
@@ -192,6 +213,7 @@ function labelOf(list, id) { return (list.find(x => x.id === id) || {}).label ||
 function catLabel(id) { return labelOf(CATEGORIES, id || 'sonstiges'); }
 function prioOf(id) { return PRIORITIES.find(p => p.id === id) || PRIORITIES[1]; }
 function areaOf(id) { return AREAS.find(a => a.id === id) || null; }
+function areaColor(a) { return `var(--c-${a.color})`; }
 
 /** Montag der aktuellen Woche */
 function weekStart(d = new Date()) {
@@ -239,6 +261,8 @@ function defaultState() {
       lastBackup: null, backupSnooze: null, firstUse: null,
       statsMode: '7', calFrom: null, calTo: null,
       taskSort: 'prio', lastArea: null, goals: {},
+      areas: DEFAULT_AREAS.map(a => ({ ...a })),
+      lastTarget: null, reviewSeen: null,
     },
   };
 }
@@ -301,13 +325,38 @@ function cleanTask(t) {
     repeat: REPEATS.some(r => r.id && r.id === t.repeat) ? t.repeat : null,
     startDate: /^\d{4}-\d{2}-\d{2}$/.test(t.startDate || '') ? t.startDate : null,
     spawnedId: safeId(t.spawnedId),
+    steps: Array.isArray(t.steps)
+      ? t.steps.filter(x => x && typeof x.text === 'string' && x.text.trim()).slice(0, 20)
+        .map(x => ({ id: safeId(x.id) || uid(), text: x.text.trim().slice(0, 80), done: !!x.done }))
+      : [],
   };
 }
+
+function cleanAreas(list) {
+  const out = [];
+  if (Array.isArray(list)) {
+    for (const a of list) {
+      const id = safeId(a && a.id);
+      const label = String((a && a.label) || '').trim().slice(0, 20);
+      if (!id || !label || out.some(x => x.id === id)) continue;
+      out.push({ id, label, color: AREA_COLORS.includes(a.color) ? a.color : 'indigo' });
+      if (out.length >= MAX_AREAS) break;
+    }
+  }
+  return out.length ? out : DEFAULT_AREAS.map(a => ({ ...a }));
+}
+
+/** Globale Bereichsliste an die gespeicherten Bereiche angleichen */
+function syncAreas(list) { AREAS = list.map(decorateArea); }
 
 /** Bringt (auch importierte oder ältere) Daten in eine gültige Form. */
 function normalizeState(raw) {
   const s = defaultState();
-  if (!raw || typeof raw !== 'object') return s;
+  if (!raw || typeof raw !== 'object') { syncAreas(s.meta.areas); return s; }
+
+  // Bereiche zuerst, damit Aufgaben und Blöcke gegen sie geprüft werden
+  s.meta.areas = cleanAreas(raw.meta && raw.meta.areas);
+  syncAreas(s.meta.areas);
 
   // Beispieldaten früherer Versionen entfernen
   const rawDays = raw.days && typeof raw.days === 'object' && !Array.isArray(raw.days) ? raw.days : {};
@@ -356,6 +405,7 @@ function normalizeState(raw) {
       otherLabel: String(r.otherLabel ?? '').slice(0, 60),
       distractions: cleanDistractions(r.distractions),
       stopAt: Number.isFinite(r.stopAt) ? r.stopAt : null,
+      target: Number(r.target) > 0 ? Number(r.target) : null,
     };
     if (!s.running.priorityId && !s.running.category) s.running.category = 'sonstiges';
   }
@@ -369,6 +419,8 @@ function normalizeState(raw) {
     if (m.backupSnooze) s.meta.backupSnooze = m.backupSnooze;
     if (m.firstUse) s.meta.firstUse = m.firstUse;
     if (AREAS.some(a => a.id === m.lastArea)) s.meta.lastArea = m.lastArea;
+    if (Number(m.lastTarget) > 0) s.meta.lastTarget = Number(m.lastTarget);
+    if (m.reviewSeen) s.meta.reviewSeen = String(m.reviewSeen);
     if (m.goals && typeof m.goals === 'object') {
       for (const a of AREAS) if (Number(m.goals[a.id]) > 0) s.meta.goals[a.id] = Number(m.goals[a.id]);
     }
@@ -565,7 +617,8 @@ function renderPrioPicker(container, value, onPick) {
 
 function renderAreaPicker(container, value, onPick) {
   container.innerHTML = [...AREAS, { id: '', short: 'Ohne' }].map(a =>
-    `<button type="button" class="prio-opt area-opt ${a.id ? `a-${a.id}` : 'a-none'}" data-area="${a.id}" aria-pressed="${(value || '') === a.id}">${a.short}</button>`
+    `<button type="button" class="prio-opt area-opt ${a.id ? '' : 'a-none'}" ${a.id ? `style="${areaVar(a)}"` : ''}
+      data-area="${esc(a.id)}" aria-pressed="${(value || '') === a.id}">${esc(a.short)}</button>`
   ).join('');
   container.onclick = e => {
     const btn = e.target.closest('button[data-area]');
@@ -640,6 +693,7 @@ function selectHasValue(sel, v) { return $$('option', sel).some(o => o.value ===
 function renderToday() {
   $('#today-date').textContent = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
   renderBackupBanner();
+  renderReviewBanner();
   renderTimer();
   renderWeek();
   renderTasks();
@@ -671,14 +725,24 @@ function renderBackupBanner() {
 
 /* ---------- Wochenziele ---------- */
 
+function streakLine() {
+  const days = focusStreak();
+  const weeks = goalWeekStreak();
+  const parts = [];
+  if (days >= 2) parts.push(`<span>${ICONS.flame}${days} Tage in Folge fokussiert</span>`);
+  if (weeks >= 1) parts.push(`<span>${ICONS.flame}${weeks} ${weeks === 1 ? 'Woche' : 'Wochen'} Ziele erreicht</span>`);
+  return parts.length ? `<p class="streaks">${parts.join('')}</p>` : '';
+}
+
 function renderWeek() {
   const card = $('#week-card');
   if (!hasGoals()) {
+    const recs = AREAS.filter(a => a.rec && a.id !== 'privat');
     card.innerHTML = `
       <div class="week-empty">
-        <span>Setz dir Wochenziele, zum Beispiel ${AREAS.filter(a => a.id !== 'privat').map(a => `${a.rec} h ${a.label}`).join(' und ')}.</span>
+        <span>Setz dir Wochenziele${recs.length ? `, zum Beispiel ${recs.map(a => `${a.rec} h ${esc(a.label)}`).join(' und ')}` : ' für deine Bereiche'}.</span>
         <button type="button" class="btn btn-small" data-action="goals">Festlegen</button>
-      </div>`;
+      </div>${streakLine()}`;
     return;
   }
   const done = weekFocusByArea();
@@ -687,9 +751,9 @@ function renderWeek() {
     const have = done[a.id] || 0;
     const reached = have >= goal;
     return `
-      <div class="goal-row a-${a.id}">
+      <div class="goal-row" style="${areaVar(a)}">
         <div class="goal-top">
-          <span class="goal-name"><i class="area-dot"></i>${a.label}</span>
+          <span class="goal-name"><i class="area-dot"></i>${esc(a.label)}</span>
           <span class="goal-val ${reached ? 'is-reached' : ''}">${fmtMin(have)} von ${fmtMin(goal)}${reached ? ' ✓' : ''}</span>
         </div>
         <span class="goal-bar"><span style="width:${Math.min(100, (have / goal) * 100)}%"></span></span>
@@ -702,7 +766,48 @@ function renderWeek() {
       <button type="button" class="link-btn" data-action="goals">Ziele ändern</button>
     </div>
     ${rows}
-    <p class="week-foot">${left === 0 ? 'Letzter Tag der Woche.' : `Noch ${left} ${left === 1 ? 'Tag' : 'Tage'} bis Sonntag.`}</p>`;
+    <p class="week-foot">${left === 0 ? 'Letzter Tag der Woche.' : `Noch ${left} ${left === 1 ? 'Tag' : 'Tage'} bis Sonntag.`}</p>
+    ${streakLine()}`;
+}
+
+/* ---------- Serien ---------- */
+
+/** Tage in Folge mit mindestens einem Fokus-Block (heute zählt, sobald ein Block da ist) */
+function focusStreak() {
+  const days = new Set(state.sessions.map(x => x.date));
+  let d = startOfDay(new Date());
+  if (!days.has(ymd(d))) d = addDays(d, -1);
+  let n = 0;
+  while (days.has(ymd(d))) { n++; d = addDays(d, -1); }
+  return n;
+}
+
+/** Fokusminuten pro Bereich in einer bestimmten Woche (Montag = ws) */
+function weekAreaMinutes(ws) {
+  const from = ymd(ws), to = ymd(addDays(ws, 6));
+  const out = {};
+  for (const x of state.sessions) {
+    if (x.date < from || x.date > to) continue;
+    const a = sessionArea(x);
+    if (a) out[a] = (out[a] || 0) + sessionMin(x);
+  }
+  return out;
+}
+
+function goalsMet(minutes) {
+  return AREAS.filter(a => state.meta.goals[a.id] > 0).every(a => (minutes[a.id] || 0) >= state.meta.goals[a.id]);
+}
+
+/** Abgeschlossene Wochen in Folge, in denen alle Wochenziele erreicht wurden (+ diese, falls schon geschafft) */
+function goalWeekStreak() {
+  if (!hasGoals()) return 0;
+  const thisWeek = weekStart();
+  let n = goalsMet(weekFocusByArea()) ? 1 : 0;
+  for (let ws = addDays(thisWeek, -7); n < 104; ws = addDays(ws, -7)) {
+    if (!goalsMet(weekAreaMinutes(ws))) break;
+    n++;
+  }
+  return n;
 }
 
 let goalDraft = {};
@@ -714,24 +819,26 @@ function openGoalsSheet() {
 }
 
 function renderGoalsSheet() {
-  const allRec = AREAS.every(a => Math.round((goalDraft[a.id] || 0) / 60) === a.rec);
+  const withRec = AREAS.filter(a => a.rec);
+  const allRec = withRec.every(a => Math.round((goalDraft[a.id] || 0) / 60) === a.rec);
+  $('#goals-rec-all').hidden = !withRec.length;
   $('#goals-rec-all').disabled = allRec;
   $('#goals-rec-all').textContent = allRec ? 'Empfehlungen sind eingestellt' : 'Alle Empfehlungen übernehmen';
   $('#goals-list').innerHTML = AREAS.map(a => {
     const h = Math.round((goalDraft[a.id] || 0) / 60);
     const isRec = h === a.rec;
     return `
-      <div class="stepper-row a-${a.id}">
+      <div class="stepper-row" style="${areaVar(a)}">
         <div class="goal-info">
-          <span class="goal-name"><i class="area-dot"></i>${a.label}</span>
-          <button type="button" class="rec-btn ${isRec ? 'is-set' : ''}" data-rec="${a.id}" ${isRec ? 'disabled' : ''}
-            aria-label="Empfehlung für ${a.label} übernehmen: ${a.rec} Stunden">Empfohlen: ${a.rec} h${isRec ? ' ✓' : ''}</button>
-          <span class="rec-why">${a.why}</span>
+          <span class="goal-name"><i class="area-dot"></i>${esc(a.label)}</span>
+          ${a.rec ? `<button type="button" class="rec-btn ${isRec ? 'is-set' : ''}" data-rec="${a.id}" ${isRec ? 'disabled' : ''}
+            aria-label="Empfehlung für ${esc(a.label)} übernehmen: ${a.rec} Stunden">Empfohlen: ${a.rec} h${isRec ? ' ✓' : ''}</button>
+          <span class="rec-why">${a.why}</span>` : ''}
         </div>
         <div class="stepper">
-          <button type="button" data-step="-1" data-area="${a.id}" aria-label="${a.label}: eine Stunde weniger" ${h <= 0 ? 'disabled' : ''}>−</button>
+          <button type="button" data-step="-1" data-area="${a.id}" aria-label="${esc(a.label)}: eine Stunde weniger" ${h <= 0 ? 'disabled' : ''}>−</button>
           <strong>${h ? `${h} h` : 'Kein Ziel'}</strong>
-          <button type="button" data-step="1" data-area="${a.id}" aria-label="${a.label}: eine Stunde mehr" ${h >= 60 ? 'disabled' : ''}>+</button>
+          <button type="button" data-step="1" data-area="${a.id}" aria-label="${esc(a.label)}: eine Stunde mehr" ${h >= 60 ? 'disabled' : ''}>+</button>
         </div>
       </div>`;
   }).join('');
@@ -762,6 +869,145 @@ function saveGoals() {
   toast(hasGoals() ? 'Wochenziele gespeichert' : 'Wochenziele entfernt');
 }
 
+/* ---------- Bereiche bearbeiten ---------- */
+
+let areaDraft = [];
+
+function openAreasSheet() {
+  areaDraft = state.meta.areas.map(a => ({ ...a }));
+  renderAreasSheet();
+  openSheet('#areas-sheet');
+}
+
+function renderAreasSheet() {
+  $('#areas-list').innerHTML = areaDraft.map((a, i) => `
+    <div class="area-edit" data-i="${i}" style="--a: var(--c-${a.color})">
+      <button type="button" class="color-btn" data-area-action="color" aria-label="Farbe wechseln"><i class="area-dot"></i></button>
+      <input class="input" type="text" maxlength="20" value="${esc(a.label)}" data-area-action="label" aria-label="Name des Bereichs">
+      <button type="button" class="icon-btn" data-area-action="delete" aria-label="Bereich löschen" ${areaDraft.length <= 1 ? 'disabled' : ''}>${ICONS.trash}</button>
+    </div>`).join('');
+  $('#area-add').hidden = areaDraft.length >= MAX_AREAS;
+}
+
+function onAreasClick(e) {
+  const btn = e.target.closest('button[data-area-action]');
+  if (!btn) return;
+  const i = Number(btn.closest('.area-edit').dataset.i);
+  if (btn.dataset.areaAction === 'color') {
+    const cur = AREA_COLORS.indexOf(areaDraft[i].color);
+    areaDraft[i].color = AREA_COLORS[(cur + 1) % AREA_COLORS.length];
+  } else if (btn.dataset.areaAction === 'delete') {
+    const used = state.tasks.filter(t => t.area === areaDraft[i].id && !t.done).length;
+    if (used && !confirm(`„${areaDraft[i].label}“ löschen? ${used} offene ${used === 1 ? 'Aufgabe verliert' : 'Aufgaben verlieren'} ihren Bereich.`)) return;
+    areaDraft.splice(i, 1);
+  }
+  renderAreasSheet();
+}
+
+function onAreasInput(e) {
+  const input = e.target.closest('input[data-area-action="label"]');
+  if (!input) return;
+  areaDraft[Number(input.closest('.area-edit').dataset.i)].label = input.value;
+}
+
+function addAreaDraft() {
+  if (areaDraft.length >= MAX_AREAS) return;
+  const free = AREA_COLORS.find(c => !areaDraft.some(a => a.color === c)) || 'indigo';
+  areaDraft.push({ id: `a${uid()}`, label: '', color: free });
+  renderAreasSheet();
+  const inputs = $$('#areas-list input');
+  inputs[inputs.length - 1].focus();
+}
+
+function saveAreas() {
+  const list = areaDraft.map(a => ({ ...a, label: a.label.trim() })).filter(a => a.label);
+  if (!list.length) { toast('Mindestens ein Bereich braucht einen Namen.'); return; }
+  const ids = new Set(list.map(a => a.id));
+  for (const t of state.tasks) if (t.area && !ids.has(t.area)) t.area = null;
+  for (const id of Object.keys(state.meta.goals)) if (!ids.has(id)) delete state.meta.goals[id];
+  if (state.meta.lastArea && !ids.has(state.meta.lastArea)) state.meta.lastArea = null;
+  if (newArea && !ids.has(newArea)) newArea = null;
+  state.meta.areas = cleanAreas(list);
+  syncAreas(state.meta.areas);
+  saveState();
+  closeSheet('#areas-sheet');
+  renderToday();
+  renderAuswertung();
+  toast('Bereiche gespeichert');
+}
+
+/* ---------- Wochenrückblick ---------- */
+
+let reviewWeek = null;   // Montag der angezeigten Woche
+
+/** Welche Woche ist gerade „dran“? Sonntag: diese, Montag: die letzte */
+function reviewDueWeek() {
+  const today = startOfDay(new Date());
+  const dow = today.getDay();
+  if (dow === 0) return weekStart(today);
+  if (dow === 1) return addDays(weekStart(today), -7);
+  return null;
+}
+
+function renderReviewBanner() {
+  const ws = reviewDueWeek();
+  const el = $('#review-banner');
+  const due = ws && state.meta.reviewSeen !== ymd(ws) && state.sessions.some(x => x.date >= ymd(ws));
+  el.hidden = !due;
+}
+
+function openReview(ws) {
+  reviewWeek = ws || reviewDueWeek() || weekStart();
+  state.meta.reviewSeen = ymd(reviewWeek) === ymd(reviewDueWeek() || new Date(0)) ? ymd(reviewWeek) : state.meta.reviewSeen;
+  saveState();
+  renderReviewBanner();
+  renderReview();
+  openSheet('#review-sheet');
+}
+
+function renderReview() {
+  const ws = reviewWeek;
+  const today = startOfDay(new Date());
+  const we = addDays(ws, 6) > today ? today : addDays(ws, 6);
+  const range = { from: ws, to: we, days: Math.round((we - ws) / DAY_MS) + 1, single: false };
+  const st = typeof computeStats === 'function' ? computeStats(range) : null;
+  if (!st) return;
+  const isCurrent = ymd(ws) === ymd(weekStart());
+  $('#review-range').textContent = `${ws.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' })} bis ${addDays(ws, 6).toLocaleDateString('de-DE', { day: 'numeric', month: 'short' })}${isCurrent ? ' (diese Woche)' : ''}`;
+  $('#review-next').disabled = isCurrent;
+
+  const best = st.days.reduce((a, b) => (b.taskMin + b.otherMin > a.taskMin + a.otherMin ? b : a));
+  const bestMin = best.taskMin + best.otherMin;
+  const topDistr = st.distractions[0];
+  const insight = typeof buildInsights === 'function' ? buildInsights(st)[0] : null;
+  const mins = weekAreaMinutes(ws);
+  const goals = AREAS.filter(a => state.meta.goals[a.id] > 0);
+
+  $('#review-body').innerHTML = `
+    <div class="kpi-grid review-kpis">
+      <div class="kpi"><div class="kpi-label">Fokuszeit</div><div class="kpi-value">${st.totalMin >= 1 ? fmtMin(st.totalMin).replace(/ (h|min)/g, '<small> $1</small>') : '–'}</div><div class="kpi-sub">an ${st.activeDays} ${st.activeDays === 1 ? 'Tag' : 'Tagen'}</div></div>
+      <div class="kpi"><div class="kpi-label">Erledigt</div><div class="kpi-value">${st.doneCount}</div><div class="kpi-sub">${st.doneCount === 1 ? 'Aufgabe' : 'Aufgaben'}</div></div>
+    </div>
+    ${goals.length ? `<div class="review-section"><h3>Wochenziele</h3>${goals.map(a => {
+      const g = state.meta.goals[a.id], have = mins[a.id] || 0;
+      return `<div class="goal-row" style="${areaVar(a)}">
+        <div class="goal-top"><span class="goal-name"><i class="area-dot"></i>${esc(a.label)}</span>
+        <span class="goal-val ${have >= g ? 'is-reached' : ''}">${fmtMin(have)} von ${fmtMin(g)}${have >= g ? ' ✓' : ''}</span></div>
+        <span class="goal-bar"><span style="width:${Math.min(100, (have / g) * 100)}%"></span></span></div>`;
+    }).join('')}</div>` : ''}
+    <div class="review-section review-facts">
+      ${bestMin >= 1 ? `<p><span>Bester Tag</span><strong>${best.d.toLocaleDateString('de-DE', { weekday: 'long' })}, ${fmtMin(bestMin)}</strong></p>` : ''}
+      ${st.avgRating ? `<p><span>Ø Konzentration</span><strong>${fmtNum(st.avgRating)} von 5</strong></p>` : ''}
+      ${topDistr && topDistr.count ? `<p><span>Häufigste Ablenkung</span><strong>${esc(topDistr.label)} (${topDistr.count}×)</strong></p>` : ''}
+      ${focusStreak() >= 2 ? `<p><span>Serie</span><strong>${focusStreak()} Tage in Folge</strong></p>` : ''}
+    </div>
+    ${insight ? `<div class="review-section review-insight">
+      <h3>Für nächste Woche</h3>
+      <p class="review-insight-title">${esc(insight.title)}</p>
+      <p>${esc(insight.tip)}</p>
+    </div>` : st.totalMin >= 1 ? `<div class="review-section review-insight"><h3>Für nächste Woche</h3><p>Starke Woche. Halte den Rhythmus und plan den Montag schon heute.</p></div>` : '<p class="muted">In dieser Woche gibt es noch keine Fokus-Blöcke.</p>'}`;
+}
+
 /* ---------- To-do-Liste ---------- */
 
 let suggestOffset = 0;
@@ -770,6 +1016,7 @@ let newPrio = 'mittel';
 let newEst = null;
 let newArea = null;   // wird beim Start auf den zuletzt genutzten Bereich gesetzt
 let planDay = 'today';  // Ansicht der Liste: 'today' oder 'tomorrow'
+let listFilter = 'all'; // Bereich-Filter der Liste
 let newWhen = null;     // „Wann?“ beim Anlegen; null = passend zur Ansicht
 
 function blockCountLabel(n) { return `${n} ${n === 1 ? 'Block' : 'Blöcken'}`; }
@@ -786,11 +1033,13 @@ function taskItem(t) {
   const due = dueInfo(t);
   const tags = t.done ? '' : [
     `<span class="prio-pill p-${pr.id}">${pr.label}</span>`,
-    area ? `<span class="area-tag a-${area.id}"><i class="area-dot"></i>${area.short}</span>` : '',
+    area ? `<span class="area-tag" style="${areaVar(area)}"><i class="area-dot"></i>${esc(area.short)}</span>` : '',
     due ? `<span class="due-tag ${due.cls}">${due.text}</span>` : '',
     t.repeat ? `<span class="repeat-tag" aria-label="${labelOf(REPEATS, t.repeat)}">${ICONS.repeat}${labelOf(REPEATS, t.repeat)}</span>` : '',
     t.startDate && t.startDate > tomorrowKey() ? `<span class="plan-tag">${ICONS.calendar}${shortDate(t.startDate)}</span>` : '',
+    t.steps.length ? `<span class="steps-tag ${t.steps.every(x => x.done) ? 'is-done' : ''}">${ICONS.steps}${t.steps.filter(x => x.done).length}/${t.steps.length}</span>` : '',
   ].join('');
+  const nextStep = !t.done && t.steps.find(x => !x.done);
 
   let meta;
   if (isRunning) meta = `<span class="live">Läuft gerade</span>, ${fmtMin(inv)} investiert`;
@@ -811,11 +1060,31 @@ function taskItem(t) {
       <button type="button" class="prio-body" data-action="edit" aria-label="${esc(t.title)} bearbeiten">
         <span class="prio-title">${esc(t.title)}</span>
         ${tags ? `<span class="task-tags">${tags}</span>` : ''}
+        ${nextStep ? `<span class="next-step">Als Nächstes: ${esc(nextStep.text)}</span>` : ''}
         <span class="prio-meta">${meta}</span>
         ${bar}
       </button>
       ${action}
     </li>`;
+}
+
+/** Filterleiste über der Liste (ab 4 Aufgaben mit mindestens zwei Bereichen) */
+function applyFilter(list) {
+  const used = new Set(list.map(t => t.area || ''));
+  const show = list.length >= 4 && used.size >= 2;
+  const bar = $('#task-filter');
+  bar.hidden = !show;
+  if (!show) { listFilter = 'all'; return list; }
+  if (listFilter !== 'all' && !used.has(listFilter === 'none' ? '' : listFilter)) listFilter = 'all';
+  const opts = [{ id: 'all', label: 'Alle' },
+    ...AREAS.filter(a => used.has(a.id)).map(a => ({ id: a.id, label: a.short, a })),
+    ...(used.has('') ? [{ id: 'none', label: 'Ohne' }] : [])];
+  bar.innerHTML = opts.map(o =>
+    `<button type="button" class="chip chip-sm filter-chip" data-filter="${esc(o.id)}" ${o.a ? `style="${areaVar(o.a)}"` : ''}
+      aria-pressed="${listFilter === o.id}">${o.a ? '<i class="area-dot"></i>' : ''}${esc(o.label)}
+      <span class="filter-n">${o.id === 'all' ? list.length : list.filter(t => (t.area || 'none') === o.id).length}</span></button>`
+  ).join('');
+  return listFilter === 'all' ? list : list.filter(t => (t.area || 'none') === listFilter);
 }
 
 function renderTasks() {
@@ -837,8 +1106,10 @@ function renderTasks() {
   } else if (!open.length) {
     list.innerHTML = '<li class="empty">Alles erledigt. Stark!</li>';
   } else {
-    list.innerHTML = open.map(taskItem).join('');
+    const shown = applyFilter(open);
+    list.innerHTML = shown.map(taskItem).join('');
   }
+  if (!open.length) $('#task-filter').hidden = true;
 
   $('#done-box').hidden = !done.length;
   $('#done-count').textContent = done.length;
@@ -872,9 +1143,10 @@ function renderTomorrow() {
   const tm = addDays(new Date(), 1).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
 
   list.innerHTML = items.length
-    ? items.map(taskItem).join('')
+    ? applyFilter(items).map(taskItem).join('')
     : `<li class="empty">Für ${tm} ist noch nichts geplant. Was willst du morgen schaffen? Die Aufgaben erscheinen morgen früh automatisch in deiner Liste.</li>`;
 
+  if (!items.length) $('#task-filter').hidden = true;
   $('#plan-count').textContent = items.length ? `${items.length} geplant` : '';
   $('#btn-sort').hidden = items.length < 2;
   $('#btn-sort').textContent = (SORTS.find(x => x.id === state.meta.taskSort) || SORTS[0]).label;
@@ -1007,7 +1279,9 @@ function onSuggestClick(e) {
   if (!chip) return;
   const sug = SUGGESTIONS.find(x => x.title === chip.dataset.title) || {};
   pushTask({
-    title: chip.dataset.title, estimateMin: Number(chip.dataset.min), area: sug.area || null, repeat: sug.repeat || null,
+    title: chip.dataset.title, estimateMin: Number(chip.dataset.min),
+    area: areaOf(sug.area) ? sug.area : null, repeat: sug.repeat || null,
+    steps: (sug.steps || []).map(text => ({ id: uid(), text, done: false })),
     startDate: planDay === 'tomorrow' ? tomorrowKey() : null,
   });
   renderTasks();
@@ -1048,6 +1322,7 @@ function toggleTask(t) {
     spawned = cleanTask({
       ...t, id: uid(), createdAt: Date.now(), done: false, doneAt: null,
       startDate: next, dueDate: t.dueDate ? next : null, spawnedId: null,
+      steps: t.steps.map(x => ({ ...x, id: uid(), done: false })),
     });
     state.tasks.push(spawned);
     t.spawnedId = spawned.id;
@@ -1114,6 +1389,8 @@ function openEditSheet(t) {
   $('#edit-due-date').value = t.dueDate || '';
   $('#edit-due-date').hidden = !t.dueDate;
   $('#edit-repeat').value = t.repeat || '';
+  $('#edit-step-input').value = '';
+  renderEditSteps();
   let opts = '<option value="">Keine Schätzung</option>' +
     ESTIMATES.map(e => `<option value="${e.min}">${e.label}</option>`).join('');
   if (t.estimateMin && !ESTIMATES.some(e => e.min === t.estimateMin)) {
@@ -1141,6 +1418,52 @@ function updateEditWhen() {
 
 function updateEditArea() {
   renderAreaPicker($('#edit-area'), editArea, v => { editArea = v; updateEditArea(); });
+}
+
+function renderEditSteps() {
+  const t = findTask(editId);
+  if (!t) return;
+  const done = t.steps.filter(x => x.done).length;
+  $('#edit-steps-count').textContent = t.steps.length ? `${done} von ${t.steps.length}` : '';
+  $('#edit-steps').innerHTML = t.steps.map(x => `
+    <li class="step ${x.done ? 'done' : ''}" data-id="${esc(x.id)}">
+      <button type="button" class="step-check" data-step-action="toggle" aria-pressed="${x.done}" aria-label="${x.done ? 'Als offen markieren' : 'Als erledigt markieren'}"><span>${ICONS.check}</span></button>
+      <span class="step-text">${esc(x.text)}</span>
+      <button type="button" class="icon-btn" data-step-action="delete" aria-label="Schritt löschen">${ICONS.trash}</button>
+    </li>`).join('');
+  $('#edit-step-row').hidden = t.steps.length >= 20;
+}
+
+function addEditStep() {
+  const t = findTask(editId);
+  const input = $('#edit-step-input');
+  const text = input.value.trim();
+  if (!t || !text) { input.focus(); return; }
+  t.steps.push({ id: uid(), text: text.slice(0, 80), done: false });
+  input.value = '';
+  saveState();
+  renderEditSteps();
+  renderTasks();
+  input.focus();
+}
+
+function onEditStepClick(e) {
+  const btn = e.target.closest('[data-step-action]');
+  const t = findTask(editId);
+  if (!btn || !t) return;
+  const id = btn.closest('.step').dataset.id;
+  if (btn.dataset.stepAction === 'delete') {
+    t.steps = t.steps.filter(x => x.id !== id);
+  } else {
+    const st = t.steps.find(x => x.id === id);
+    if (st) st.done = !st.done;
+    if (st && st.done && !t.done && t.steps.every(x => x.done)) {
+      toast('Alle Schritte erledigt.', { label: 'Aufgabe abhaken', fn: () => { closeSheet('#edit-sheet'); toggleTask(t); } });
+    }
+  }
+  saveState();
+  renderEditSteps();
+  renderTasks();
 }
 
 function renderEditBlocks() {
@@ -1295,10 +1618,35 @@ function updateIdleDial() {
   setDial(total ? done / total : 0, false, sub);
 }
 
-/** Mit Timer: Aufgabe mit Schätzung → Anteil der Schätzung, sonst eine Runde pro Stunde */
+const TARGETS = [null, 25, 45, 60, 90];
+let targetNotified = false;
+
+function renderTargetChips() {
+  const cur = state.meta.lastTarget || null;
+  $('#target-chips').innerHTML = TARGETS.map(m =>
+    `<button type="button" class="chip chip-sm" data-target="${m || ''}" aria-pressed="${cur === m}">${m ? `${m} min` : 'Offen'}</button>`
+  ).join('');
+}
+
+/** Mit Timer: Zielzeit → Fortschritt bis zum Ziel; Aufgabe mit Schätzung → Anteil der Schätzung; sonst eine Runde pro Stunde */
 function updateRunningDial(r) {
   const elapsed = ((r.stopAt || Date.now()) - r.start) / 60000;
   const t = findTask(r.priorityId);
+  const dial = $('#dial');
+  dial.classList.remove('is-reached');
+  if (r.target) {
+    const reached = elapsed >= r.target;
+    dial.classList.toggle('is-reached', reached);
+    setDial(elapsed / r.target, false, reached
+      ? 'Ziel erreicht. Zeit für eine kurze Pause!'
+      : `Noch ${fmtMin(Math.max(1, r.target - elapsed))} bis zum Ziel`);
+    if (reached && !targetNotified && !r.stopAt) {
+      targetNotified = true;
+      toast(`${r.target} min geschafft. Gönn dir 5 Minuten Pause.`);
+      if (navigator.vibrate) navigator.vibrate(200);
+    }
+    return;
+  }
   if (t && t.estimateMin) {
     const inv = investedMin(t.id);
     const over = inv > t.estimateMin;
@@ -1325,6 +1673,8 @@ function renderTimer() {
     disp.textContent = '00:00';
     disp.classList.remove('is-long');
     renderTargetSelect();
+    renderTargetChips();
+    $('#dial').classList.remove('is-reached');
     updateIdleDial();
     return;
   }
@@ -1333,7 +1683,7 @@ function renderTimer() {
   $('#timer-title').textContent = t.title;
   $('#run-cat').textContent = t.sub;
   $('#run-cat').hidden = !t.sub;
-  $('#run-since').textContent = `Gestartet um ${fmtClock(r.start)} Uhr`;
+  $('#run-since').textContent = `Gestartet um ${fmtClock(r.start)} Uhr` + (r.target ? `, Ziel ${r.target} min` : '');
   renderDistractions();
   tick();
 }
@@ -1389,7 +1739,9 @@ function beginFocus(t) {
     otherLabel: t.label,
     distractions: {},
     stopAt: null,
+    target: state.meta.lastTarget || null,
   };
+  targetNotified = false;
   saveState();
   targetIsManual = false;
   $('#focus-other').value = '';
@@ -1765,6 +2117,7 @@ function renderAuswertung() {
 
 function renderGoalsSummary() {
   const parts = AREAS.filter(a => state.meta.goals[a.id] > 0).map(a => `${a.label} ${fmtMin(state.meta.goals[a.id])}`);
+  $('#areas-summary').textContent = AREAS.map(a => a.label).join(', ');
   $('#goals-summary').textContent = parts.length ? parts.join(', ') : 'Noch keine Wochenziele festgelegt.';
 }
 
@@ -1896,8 +2249,37 @@ function bindEvents() {
   on('#week-card', 'click', e => { if (e.target.closest('[data-action="goals"]')) openGoalsSheet(); });
   on('#btn-goals', 'click', openGoalsSheet);
   on('#goals-list', 'click', onGoalStep);
+  on('#edit-steps', 'click', onEditStepClick);
+  on('#edit-step-add', 'click', addEditStep);
+  on('#edit-step-input', 'keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addEditStep(); } });
+  on('#target-chips', 'click', e => {
+    const b = e.target.closest('button[data-target]');
+    if (!b) return;
+    state.meta.lastTarget = b.dataset.target ? Number(b.dataset.target) : null;
+    saveState();
+    renderTargetChips();
+  });
+  on('#task-filter', 'click', e => {
+    const b = e.target.closest('button[data-filter]');
+    if (!b) return;
+    listFilter = b.dataset.filter;
+    renderTasks();
+  });
+  on('#btn-areas', 'click', openAreasSheet);
+  on('#areas-list', 'click', onAreasClick);
+  on('#areas-list', 'input', onAreasInput);
+  on('#area-add', 'click', addAreaDraft);
+  on('#areas-save', 'click', saveAreas);
+  on('#areas-cancel', 'click', () => closeSheet('#areas-sheet'));
+  on('#review-open', 'click', () => openReview());
+  on('#btn-review', 'click', () => openReview(weekStart()));
+  on('#review-prev', 'click', () => { reviewWeek = addDays(reviewWeek, -7); renderReview(); });
+  on('#review-next', 'click', () => { reviewWeek = addDays(reviewWeek, 7); renderReview(); });
+  on('#review-close', 'click', () => closeSheet('#review-sheet'));
+  on('#review-plan', 'click', () => { closeSheet('#review-sheet'); showView('heute'); setPlanDay('tomorrow', true); });
+  on('#review-goals', 'click', () => { closeSheet('#review-sheet'); openGoalsSheet(); });
   on('#goals-rec-all', 'click', () => {
-    for (const a of AREAS) goalDraft[a.id] = a.rec * 60;
+    for (const a of AREAS) if (a.rec) goalDraft[a.id] = a.rec * 60;
     renderGoalsSheet();
   });
   on('#goals-save', 'click', saveGoals);

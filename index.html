@@ -55,6 +55,15 @@
         </div>
       </section>
 
+      <!-- Wochenrückblick -->
+      <section class="review-banner" id="review-banner" hidden>
+        <div>
+          <strong>Dein Wochenrückblick ist da</strong>
+          <span>Wie lief deine Woche, und was nimmst du mit?</span>
+        </div>
+        <button type="button" class="btn btn-small" id="review-open">Ansehen</button>
+      </section>
+
       <!-- Fokus-Timer -->
       <section class="card timer-card" id="timer-card" aria-label="Fokus-Timer">
         <div class="timer-top">
@@ -81,6 +90,8 @@
           <label class="field-label" for="focus-target">Woran arbeitest du jetzt?</label>
           <select id="focus-target" class="input"></select>
           <input id="focus-other" class="input" type="text" maxlength="60" placeholder="Beschreibung (optional)" autocomplete="off" enterkeyhint="go" hidden>
+          <p class="est-label target-label">Zielzeit für diesen Block</p>
+          <div class="est-chips target-chips" id="target-chips" role="group" aria-label="Zielzeit"></div>
           <button type="button" id="btn-start" class="btn btn-primary btn-large">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor"/></svg>
             Fokus starten
@@ -119,6 +130,7 @@
           <button type="button" data-plan="today">Heute</button>
           <button type="button" data-plan="tomorrow">Morgen</button>
         </div>
+        <div class="task-filter" id="task-filter" role="group" aria-label="Nach Bereich filtern" hidden></div>
         <ul class="prio-list" id="prio-list"></ul>
         <p class="upcoming-note" id="upcoming-note" hidden></p>
 
@@ -246,6 +258,15 @@
           <button type="button" class="link-btn" id="btn-goals">Ändern</button>
         </div>
         <p class="muted" id="goals-summary"></p>
+        <button type="button" class="btn btn-secondary review-btn" id="btn-review">Wochenrückblick ansehen</button>
+      </section>
+
+      <section class="card" id="areas-card" aria-labelledby="areas-title">
+        <div class="card-head">
+          <h2 id="areas-title">Bereiche</h2>
+          <button type="button" class="link-btn" id="btn-areas">Bearbeiten</button>
+        </div>
+        <p class="muted" id="areas-summary"></p>
       </section>
 
       <section class="card" id="theme-card" aria-labelledby="theme-title">
@@ -392,6 +413,17 @@
         </div>
       </div>
       <input id="edit-due-date" class="input input-gap" type="date" aria-label="Fälligkeitsdatum" hidden>
+      <div class="steps-head">
+        <p class="field-label">Teilschritte</p>
+        <span class="muted small" id="edit-steps-count"></span>
+      </div>
+      <ul class="steps" id="edit-steps"></ul>
+      <div class="add-row step-add" id="edit-step-row">
+        <input id="edit-step-input" class="input" type="text" maxlength="80" placeholder="Schritt hinzufügen, z. B. „Drehen“" enterkeyhint="done" aria-label="Neuer Teilschritt">
+        <button type="button" class="btn btn-secondary add-btn" id="edit-step-add" aria-label="Schritt hinzufügen">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        </button>
+      </div>
       <label class="field-label" for="edit-est">Geschätzte Dauer</label>
       <select id="edit-est" class="input"></select>
       <div id="edit-blocks-wrap" hidden>
@@ -416,6 +448,41 @@
       <div class="goals-list" id="goals-list"></div>
       <button type="button" class="btn btn-primary btn-large" id="goals-save">Speichern</button>
       <button type="button" class="btn btn-ghost btn-block" id="goals-cancel">Abbrechen</button>
+    </div>
+  </div>
+
+  <!-- ===================== BEREICHE ===================== -->
+  <div class="sheet-backdrop" id="areas-sheet" data-dismiss hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="areas-heading">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <h2 id="areas-heading">Bereiche</h2>
+      <p class="muted">Benenne deine Bereiche, wie es zu deinem Leben passt. Tipp auf den Farbpunkt, um die Farbe zu wechseln.</p>
+      <div class="areas-list" id="areas-list"></div>
+      <button type="button" class="btn btn-ghost btn-add" id="area-add">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        Bereich hinzufügen
+      </button>
+      <button type="button" class="btn btn-primary btn-large" id="areas-save">Speichern</button>
+      <button type="button" class="btn btn-ghost btn-block" id="areas-cancel">Abbrechen</button>
+    </div>
+  </div>
+
+  <!-- ===================== WOCHENRÜCKBLICK ===================== -->
+  <div class="sheet-backdrop" id="review-sheet" data-dismiss hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="review-heading">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <h2 id="review-heading">Wochenrückblick</h2>
+      <div class="review-nav">
+        <button type="button" class="icon-btn" id="review-prev" aria-label="Vorherige Woche"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <span id="review-range"></span>
+        <button type="button" class="icon-btn" id="review-next" aria-label="Nächste Woche"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
+      <div id="review-body"></div>
+      <button type="button" class="btn btn-primary btn-large" id="review-plan">Nächste Woche planen</button>
+      <div class="row">
+        <button type="button" class="btn btn-ghost" id="review-goals">Wochenziele anpassen</button>
+        <button type="button" class="btn btn-ghost" id="review-close">Schließen</button>
+      </div>
     </div>
   </div>
 
