@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0E0F13">
+  <meta name="color-scheme" content="dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Fokus">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="description" content="Plane deinen Tag, arbeite fokussiert und sieh, wo die Lücke zwischen Plan und Wirklichkeit liegt.">
+  <title>Fokus</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+  <script src="stats.js" defer></script>
+  <script src="demo.js" defer></script>
+</head>
+<body>
+  <div class="app">
+
+    <!-- ===================== HEUTE ===================== -->
+    <main id="view-heute" class="view">
+      <header class="page-head">
+        <p class="eyebrow" id="today-date">&nbsp;</p>
+        <h1>Heute</h1>
+      </header>
+
+      <!-- Fokus-Timer -->
+      <section class="card timer-card" id="timer-card" aria-label="Fokus-Timer">
+        <div id="timer-idle">
+          <div class="card-head">
+            <h2>Fokus-Timer</h2>
+          </div>
+          <div class="timer-display is-idle" aria-hidden="true">00:00</div>
+          <label class="field-label" for="focus-target">Woran arbeitest du jetzt?</label>
+          <select id="focus-target" class="input"></select>
+          <input id="focus-other" class="input" type="text" maxlength="60" placeholder="Beschreibung (optional)" autocomplete="off" enterkeyhint="go" hidden>
+          <button type="button" id="btn-start" class="btn btn-primary btn-large">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor"/></svg>
+            Fokus starten
+          </button>
+        </div>
+
+        <div id="timer-running" hidden>
+          <p class="running-label"><span class="pulse" aria-hidden="true"></span>Fokus läuft</p>
+          <p class="running-target" id="run-target"></p>
+          <div class="timer-display is-running" id="timer-display" role="timer" aria-live="off">00:00</div>
+          <p class="running-since" id="run-since"></p>
+
+          <div class="distr-head">
+            <h3>Abgelenkt? Kurz antippen:</h3>
+            <span class="muted small" id="distr-total"></span>
+          </div>
+          <div class="distr-grid" id="distr-grid"></div>
+
+          <button type="button" id="btn-stop" class="btn btn-timer btn-large">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>
+            Block beenden
+          </button>
+        </div>
+      </section>
+
+      <!-- Tagesplan -->
+      <section class="card" id="plan-card" aria-labelledby="plan-title">
+        <div class="card-head">
+          <h2 id="plan-title">Tagesplan</h2>
+          <span class="muted small" id="plan-count"></span>
+        </div>
+        <ul class="prio-list" id="prio-list"></ul>
+        <form id="prio-form" class="prio-form" autocomplete="off">
+          <input id="prio-title" class="input" type="text" maxlength="80" placeholder="Neue Priorität …" enterkeyhint="done" required>
+          <div class="row">
+            <label class="visually-hidden" for="prio-est">Geschätzte Dauer</label>
+            <select id="prio-est" class="input"></select>
+            <button type="submit" class="btn btn-primary">Hinzufügen</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Heutige Blöcke -->
+      <section class="card" id="blocks-card" aria-labelledby="blocks-title">
+        <div class="card-head">
+          <h2 id="blocks-title">Heutige Blöcke</h2>
+          <span class="muted small" id="blocks-total"></span>
+        </div>
+        <ul class="block-list" id="block-list"></ul>
+      </section>
+
+      <!-- Abend-Check -->
+      <section class="card" id="evening-card" aria-labelledby="evening-title">
+        <div class="card-head">
+          <h2 id="evening-title">Abend-Check</h2>
+          <span class="saved-indicator" id="evening-saved" aria-live="polite"></span>
+        </div>
+        <p class="field-label">Wie war deine Energie heute?</p>
+        <div class="rating" id="energy-rating" role="group" aria-label="Energie von 1 bis 5"></div>
+        <div class="rating-scale"><span>leer</span><span>voller Energie</span></div>
+
+        <p class="field-label">Was hat dich heute am meisten gebremst?</p>
+        <div class="chips" id="blocker-chips" role="group" aria-label="Größter Bremsklotz"></div>
+
+        <label class="field-label" for="evening-note">Notiz <span class="muted">(optional)</span></label>
+        <textarea id="evening-note" class="input" rows="3" maxlength="500" placeholder="Was nimmst du mit für morgen?"></textarea>
+      </section>
+    </main>
+
+    <!-- ===================== AUSWERTUNG ===================== -->
+    <main id="view-auswertung" class="view" hidden>
+      <header class="page-head">
+        <p class="eyebrow">Plan vs. Wirklichkeit</p>
+        <h1>Auswertung</h1>
+      </header>
+
+      <div class="segmented" id="range-seg" role="group" aria-label="Zeitraum">
+        <button type="button" data-range="7">7 Tage</button>
+        <button type="button" data-range="14">14 Tage</button>
+        <button type="button" data-range="30">30 Tage</button>
+      </div>
+
+      <div id="stats-content"></div>
+
+      <section class="card" id="data-card" aria-labelledby="data-title">
+        <div class="card-head">
+          <h2 id="data-title">Datensicherung</h2>
+        </div>
+        <p class="muted">Deine Daten liegen nur auf diesem Gerät. Sichere sie ab und zu als Datei, zum Beispiel in der Dateien-App oder in iCloud Drive.</p>
+        <div class="stack">
+          <button type="button" class="btn btn-secondary" id="btn-export">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0-12-4 4m4-4 4 4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Daten exportieren
+          </button>
+          <button type="button" class="btn btn-secondary" id="btn-import">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m0 12-4-4m4 4 4-4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Daten wiederherstellen
+          </button>
+        </div>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+        <p class="muted small" id="last-backup"></p>
+      </section>
+
+      <details class="advanced" id="advanced">
+        <summary aria-label="Erweiterte Optionen">···</summary>
+        <div class="advanced-body">
+          <p class="muted small">Beispieldaten helfen dir, die Auswertung auszuprobieren. Deine echten Einträge bleiben beim Löschen erhalten.</p>
+          <button type="button" class="btn btn-ghost" id="btn-demo-load">Beispieldaten laden</button>
+          <button type="button" class="btn btn-ghost btn-danger" id="btn-demo-clear">Beispieldaten löschen</button>
+        </div>
+      </details>
+      <p class="version" id="app-version"></p>
+    </main>
+  </div>
+
+  <!-- ===================== TAB-LEISTE ===================== -->
+  <nav class="tabbar" aria-label="Navigation">
+    <button type="button" class="tab is-active" data-view="heute" aria-current="page">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l2.5 2.5M9.5 2.5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>Heute</span>
+    </button>
+    <button type="button" class="tab" data-view="auswertung">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M12 20V5M19 20v-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      <span>Auswertung</span>
+    </button>
+  </nav>
+
+  <!-- ===================== BLOCK BEENDEN ===================== -->
+  <div class="sheet-backdrop" id="finish-sheet" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="finish-title">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <h2 id="finish-title">Block beenden</h2>
+      <p class="muted" id="finish-summary"></p>
+
+      <p class="field-label">Wie gut warst du konzentriert?</p>
+      <div class="rating" id="finish-rating" role="group" aria-label="Konzentration von 1 bis 5"></div>
+      <div class="rating-scale"><span>kaum</span><span>voll fokussiert</span></div>
+
+      <label class="check-row" id="finish-done-row">
+        <input type="checkbox" id="finish-done">
+        <span class="check-box" aria-hidden="true"></span>
+        <span>Priorität als erledigt markieren</span>
+      </label>
+
+      <button type="button" class="btn btn-primary btn-large" id="finish-save" disabled>Speichern</button>
+      <div class="row">
+        <button type="button" class="btn btn-ghost" id="finish-resume">Weiter fokussieren</button>
+        <button type="button" class="btn btn-ghost btn-danger" id="finish-discard">Verwerfen</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
