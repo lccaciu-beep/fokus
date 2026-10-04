@@ -36,6 +36,9 @@
   --conc-3: #6574DA;
   --conc-4: #8E9BFF;
   --conc-5: #C4CBFF;
+  --area-studium: #8E9BFF;
+  --area-tiktok: #FF6FA3;
+  --area-privat: #3FD0B8;
 
   --scrim: rgba(11, 16, 32, 0.82);
   --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
@@ -88,6 +91,9 @@
     --conc-3: #7F8AE2;
     --conc-4: #5562D6;
     --conc-5: #2F3AAE;
+    --area-studium: #4B57D6;
+    --area-tiktok: #D63A78;
+    --area-privat: #12897A;
     --scrim: #0E1528;
     --card-shadow: 0 1px 2px rgba(14, 21, 40, 0.04), 0 8px 24px rgba(14, 21, 40, 0.05);
     --float-shadow: 0 10px 34px rgba(14, 21, 40, 0.16), 0 1px 2px rgba(14, 21, 40, 0.06);
@@ -124,6 +130,9 @@
   --conc-3: #7F8AE2;
   --conc-4: #5562D6;
   --conc-5: #2F3AAE;
+  --area-studium: #4B57D6;
+  --area-tiktok: #D63A78;
+  --area-privat: #12897A;
   --scrim: #0E1528;
   --card-shadow: 0 1px 2px rgba(14, 21, 40, 0.04), 0 8px 24px rgba(14, 21, 40, 0.05);
   --float-shadow: 0 10px 34px rgba(14, 21, 40, 0.16), 0 1px 2px rgba(14, 21, 40, 0.06);
@@ -1895,3 +1904,206 @@ body.timer-running .tab[data-view="heute"]:not(.is-active) { color: var(--timer)
   font-size: 16px;
   color: var(--text);
 }
+
+
+/* =========================================================
+   Ergänzungen v1.5: Bereiche, Fälligkeit, Wiederholung,
+   Wochenziele, Backup-Erinnerung
+   ========================================================= */
+
+.a-studium { --a: var(--area-studium); }
+.a-tiktok { --a: var(--area-tiktok); }
+.a-privat { --a: var(--area-privat); }
+.a-none { --a: var(--text-3); }
+
+.area-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--a);
+}
+
+.area-picker { grid-template-columns: repeat(4, 1fr); }
+.area-opt { --p: var(--a); font-size: 14px; }
+
+/* Kennzeichen an einer Aufgabe */
+.task-tags {
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 4px;
+}
+
+.task-tags .prio-pill { margin-right: 0; }
+
+.area-tag,
+.due-tag,
+.repeat-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+.repeat-tag svg { width: 12px; height: 12px; }
+
+.due-tag.due-soon { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.due-tag.due-over { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+
+.prio-meta { margin-top: 4px; }
+
+.upcoming-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.upcoming-note svg { flex: none; width: 15px; height: 15px; color: var(--text-3); }
+
+.select-row { margin-top: 0; }
+.select-row .est-label { display: block; margin-top: 14px; }
+.select-row .field-label { margin-top: 18px; }
+
+/* Wochenziele */
+.week-card { padding-bottom: 14px; }
+
+.week-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 15px;
+  color: var(--text-2);
+}
+
+.goal-row { margin-top: 12px; }
+.goal-row:first-of-type { margin-top: 0; }
+
+.goal-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.goal-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.goal-val {
+  font-size: 13px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.goal-val.is-reached { color: var(--good); font-weight: 600; }
+
+.goal-bar {
+  display: block;
+  height: 8px;
+  margin-top: 7px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.goal-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--a);
+  transition: width .6s cubic-bezier(.3, .7, .3, 1);
+}
+
+.week-foot {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.goals-list { margin-top: 14px; }
+
+.stepper-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.stepper-row:first-child { border-top: 0; }
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.stepper button {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--accent-strong);
+}
+
+.stepper button:active { background: var(--surface-3); }
+.stepper button:disabled { color: var(--text-3); opacity: 0.4; }
+
+.stepper strong {
+  min-width: 78px;
+  text-align: center;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Erinnerung an die Datensicherung */
+.backup-banner {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+}
+
+.backup-banner p { margin: 0 0 10px; font-size: 15px; }
+
+/* Auswertung: Bereiche */
+.chart .c-area-studium { fill: var(--area-studium); }
+.chart .c-area-tiktok { fill: var(--area-tiktok); }
+.chart .c-area-privat { fill: var(--area-privat); }
+.chart .c-area-none { fill: var(--chart-other); }
+
+.goal-compare {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+/* Formular darf nie breiter werden als die Karte (wischbare Chips) */
+.prio-form { grid-template-columns: minmax(0, 1fr); }
+#add-options,
+.select-row > * { min-width: 0; }

@@ -36,6 +36,12 @@ const BLOCKER_TIPS = {
   aufgeschoben: 'Starte mit nur 10 Minuten. Der Anfang ist die größte Hürde, danach läuft es meist von selbst.',
 };
 
+const AREA_TIPS = {
+  studium: 'Leg feste Lernblöcke in deine konzentrierteste Tageszeit, zum Beispiel jeden Vormittag 2 × 45 min, und starte sie direkt mit ▶ an der Aufgabe.',
+  tiktok: 'Bündle TikTok-Arbeit: ein Block zum Drehen, einer zum Schneiden und Posten. Feste Tage (etwa Di, Do, Sa) helfen mehr als „nebenbei“.',
+  privat: 'Plane private Erledigungen bewusst als eigene Aufgaben ein, sonst gehen sie zwischen Studium und TikTok unter.',
+};
+
 /* ---------- Kleine Helfer ---------- */
 
 const sum = arr => arr.reduce((a, b) => a + b, 0);
@@ -153,7 +159,8 @@ function computeStats(range) {
 
   // Aufgaben, die im Zeitraum angelegt oder erledigt wurden, und davon erledigte
   const doneInRange = t => t.done && t.doneAt >= startMs && t.doneAt < endMs;
-  const relevant = state.tasks.filter(t => (t.createdAt >= startMs && t.createdAt < endMs) || doneInRange(t));
+  const shownAt = t => (t.startDate ? Math.max(t.createdAt, parseYmd(t.startDate).getTime()) : t.createdAt);
+  const relevant = state.tasks.filter(t => (shownAt(t) >= startMs && shownAt(t) < endMs) || doneInRange(t));
   const doneIn = relevant.filter(doneInRange);
 
   // Schätzung vs. tatsächlich (nur erledigte Aufgaben mit Schätzung und erfasster Zeit)
@@ -197,6 +204,21 @@ function computeStats(range) {
     .map(d => ({ ...d, count: sum(sessions.map(s => (s.distractions || {})[d.id] || 0)) }))
     .sort((a, b) => b.count - a.count);
 
+  // Fokuszeit pro Bereich (Blöcke ohne Aufgabe = andere Tätigkeiten)
+  const areaMin = {};
+  for (const s of sessions) {
+    const a = s.priorityId ? (sessionArea(s) || 'none') : 'other';
+    areaMin[a] = (areaMin[a] || 0) + sessionMin(s);
+  }
+  const areas = [
+    ...AREAS.map(a => ({ id: a.id, label: a.label, count: areaMin[a.id] || 0, cls: `c-area-${a.id}` })),
+    { id: 'none', label: 'Ohne Bereich', count: areaMin.none || 0, cls: 'c-area-none' },
+    { id: 'other', label: 'Andere Tätigkeiten', count: areaMin.other || 0, cls: 'c-area-none' },
+  ].sort((a, b) => b.count - a.count);
+
+  // Überfällige Aufgaben (Stand heute)
+  const overdue = state.tasks.filter(t => !t.done && t.dueDate && t.dueDate < todayKey());
+
   const categories = CATEGORIES
     .map(c => ({ ...c, count: sum(sessions.filter(s => sessionCategory(s) === c.id).map(sessionMin)) }))
     .sort((a, b) => b.count - a.count);
@@ -222,7 +244,7 @@ function computeStats(range) {
     ratio: estCount ? actSum / estSum : null,
     avgRating: avg(ratings),
     ratingCount: ratings.length,
-    hours, slots, distractions, blockers, evenings, categories, staleHigh,
+    hours, slots, distractions, blockers, evenings, categories, staleHigh, areas, areaMin, overdue,
     avgEnergy: avg(energies),
     energyCount: energies.length,
   };
@@ -267,6 +289,33 @@ function buildInsights(st) {
       text: `„${oldest.title}“ steht seit ${daysOld} Tagen mit Priorität „Hoch“ auf deiner Liste.`,
       tip: 'Teil sie in einen ersten Schritt von höchstens 30 Minuten und starte ihn morgen als ersten Block. Ist sie doch nicht wichtig, setz sie auf „Mittel“.',
     });
+  }
+
+  // 3b. Überfällige Aufgaben
+  if (st.overdue.length >= 2) {
+    out.push({
+      score: 46 + Math.min(20, st.overdue.length * 4),
+      title: `${st.overdue.length} Aufgaben sind überfällig`,
+      text: `Zum Beispiel „${st.overdue[0].title}“. Überfällige Aufgaben erzeugen schlechtes Gewissen, ohne dich weiterzubringen.`,
+      tip: 'Geh die Liste einmal durch: Gib jeder überfälligen Aufgabe ein realistisches neues Datum oder lösch sie, wenn sie nicht mehr wichtig ist.',
+    });
+  }
+
+  // 3c. Wochenziel eines Bereichs klar verfehlt
+  for (const a of AREAS) {
+    const goal = state.meta.goals[a.id];
+    if (!goal || st.days.length < 7) continue;
+    const expected = goal * st.days.length / 7;
+    const got = st.areaMin[a.id] || 0;
+    const ratio = got / expected;
+    if (ratio < 0.6) {
+      out.push({
+        score: 44 + (0.6 - ratio) * 45,
+        title: `${a.label} kommt zu kurz`,
+        text: `Dein Ziel sind ${fmtMin(goal)} pro Woche. In diesem Zeitraum wären das ${fmtMin(expected)} gewesen, geschafft hast du ${fmtMin(got)} (${pct(ratio)} %).`,
+        tip: AREA_TIPS[a.id],
+      });
+    }
   }
 
   // 4. Fokuszeit geht in andere Tätigkeiten
@@ -492,7 +541,7 @@ function chartRanking(items, emptyText, fmtValue) {
       <text class="lbl" x="0" y="${yy + 14}">${esc(r.label)}</text>
       <text class="val" x="${W}" y="${yy + 14}" text-anchor="end">${fmtValue ? fmtValue(r.count) : `${r.count}×`} (${pct(r.count / total)} %)</text>
       <rect x="0" y="${yy + 22}" width="${W}" height="10" rx="5" class="track"/>
-      <rect x="0" y="${yy + 22}" width="${w}" height="10" rx="5" class="${i === 0 ? 'c-prio' : 'c-prio-dim'}"/>`;
+      <rect x="0" y="${yy + 22}" width="${w}" height="10" rx="5" class="${r.cls || (i === 0 ? 'c-prio' : 'c-prio-dim')}"/>`;
   }).join('');
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Rangliste">${body}</svg>`;
 }
@@ -550,6 +599,23 @@ function renderFocusCard(top) {
     <p>${esc(top.text)}</p>
     <div class="tip-box">${BULB}<p>${esc(top.tip)}</p></div>
   </section>`;
+}
+
+/** Wochenziele hochgerechnet auf den Zeitraum */
+function renderGoalCompare(st) {
+  const rows = AREAS.filter(a => state.meta.goals[a.id] > 0);
+  if (!rows.length || st.days.length < 7) return '';
+  return `<div class="goal-compare">${rows.map(a => {
+    const expected = state.meta.goals[a.id] * st.days.length / 7;
+    const got = st.areaMin[a.id] || 0;
+    return `<div class="goal-row a-${a.id}">
+      <div class="goal-top">
+        <span class="goal-name"><i class="area-dot"></i>Ziel ${a.label}</span>
+        <span class="goal-val ${got >= expected ? 'is-reached' : ''}">${pct(got / expected)} %</span>
+      </div>
+      <span class="goal-bar"><span style="width:${Math.min(100, (got / expected) * 100)}%"></span></span>
+    </div>`;
+  }).join('')}</div>`;
 }
 
 /* ---------- Zeitraum-Auswahl und Kalender ---------- */
@@ -729,6 +795,13 @@ function renderStats() {
         <span><i style="background:var(--chart-other)"></i>Andere Tätigkeiten</span>
       </div>
       <p class="chart-detail">Tippe auf einen Balken für Details.</p>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Zeit nach Bereich</h2></div>
+      <p class="card-sub">Wofür du deine Fokuszeit eingesetzt hast</p>
+      ${chartRanking(st.areas, 'Noch keine Fokuszeit in diesem Zeitraum.', fmtMin)}
+      ${renderGoalCompare(st)}
     </section>
 
     <section class="card">

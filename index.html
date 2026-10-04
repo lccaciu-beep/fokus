@@ -46,6 +46,15 @@
         </button>
       </header>
 
+      <!-- Erinnerung an die Datensicherung -->
+      <section class="backup-banner" id="backup-banner" hidden aria-live="polite">
+        <p id="backup-text"></p>
+        <div class="row">
+          <button type="button" class="btn btn-primary" id="backup-now">Jetzt sichern</button>
+          <button type="button" class="btn btn-ghost" id="backup-later">Später</button>
+        </div>
+      </section>
+
       <!-- Fokus-Timer -->
       <section class="card timer-card" id="timer-card" aria-label="Fokus-Timer">
         <div class="timer-top">
@@ -94,6 +103,9 @@
         </div>
       </section>
 
+      <!-- Wochenziele -->
+      <section class="card week-card" id="week-card" aria-label="Wochenziele"></section>
+
       <!-- To-do-Liste -->
       <section class="card" id="plan-card" aria-labelledby="plan-title">
         <div class="card-head">
@@ -104,6 +116,7 @@
           </div>
         </div>
         <ul class="prio-list" id="prio-list"></ul>
+        <p class="upcoming-note" id="upcoming-note" hidden></p>
 
         <form id="prio-form" class="prio-form" autocomplete="off">
           <div class="add-row">
@@ -116,8 +129,21 @@
           <div id="add-options" hidden>
             <p class="est-label">Priorität</p>
             <div class="prio-picker" id="new-prio" role="group" aria-label="Priorität"></div>
+            <p class="est-label">Bereich</p>
+            <div class="prio-picker area-picker" id="new-area" role="group" aria-label="Bereich"></div>
             <p class="est-label">Wie lange wird es dauern? <span class="muted">(optional)</span></p>
             <div class="est-chips" id="prio-est-chips"></div>
+            <div class="row select-row">
+              <div>
+                <label class="est-label" for="new-due">Fällig</label>
+                <select id="new-due" class="input"></select>
+              </div>
+              <div>
+                <label class="est-label" for="new-repeat">Wiederholen</label>
+                <select id="new-repeat" class="input"></select>
+              </div>
+            </div>
+            <input id="new-due-date" class="input input-gap" type="date" aria-label="Fälligkeitsdatum" hidden>
           </div>
           <div class="suggest" id="suggest-box" hidden>
             <div class="suggest-head">
@@ -183,6 +209,14 @@
       <div class="card calendar" id="cal-box" hidden></div>
 
       <div id="stats-content"></div>
+
+      <section class="card" id="goals-card" aria-labelledby="goals-title">
+        <div class="card-head">
+          <h2 id="goals-title">Wochenziele</h2>
+          <button type="button" class="link-btn" id="btn-goals">Ändern</button>
+        </div>
+        <p class="muted" id="goals-summary"></p>
+      </section>
 
       <section class="card" id="theme-card" aria-labelledby="theme-title">
         <div class="card-head">
@@ -312,6 +346,19 @@
       <input id="edit-title" class="input" type="text" maxlength="80" autocomplete="off" enterkeyhint="done">
       <p class="field-label">Priorität</p>
       <div class="prio-picker" id="edit-prio" role="group" aria-label="Priorität"></div>
+      <p class="field-label">Bereich</p>
+      <div class="prio-picker area-picker" id="edit-area" role="group" aria-label="Bereich"></div>
+      <div class="row select-row">
+        <div>
+          <label class="field-label" for="edit-due">Fällig</label>
+          <select id="edit-due" class="input"></select>
+        </div>
+        <div>
+          <label class="field-label" for="edit-repeat">Wiederholen</label>
+          <select id="edit-repeat" class="input"></select>
+        </div>
+      </div>
+      <input id="edit-due-date" class="input input-gap" type="date" aria-label="Fälligkeitsdatum" hidden>
       <label class="field-label" for="edit-est">Geschätzte Dauer</label>
       <select id="edit-est" class="input"></select>
       <div id="edit-blocks-wrap" hidden>
@@ -323,6 +370,18 @@
         <button type="button" class="btn btn-ghost" id="edit-cancel">Abbrechen</button>
         <button type="button" class="btn btn-ghost btn-danger" id="edit-delete">Aufgabe löschen</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===================== WOCHENZIELE ===================== -->
+  <div class="sheet-backdrop" id="goals-sheet" data-dismiss hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="goals-heading">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <h2 id="goals-heading">Wochenziele</h2>
+      <p class="muted">Wie viele Stunden Fokus willst du pro Woche in jeden Bereich stecken? Gezählt wird die Zeit in Blöcken für Aufgaben dieses Bereichs, von Montag bis Sonntag.</p>
+      <div class="goals-list" id="goals-list"></div>
+      <button type="button" class="btn btn-primary btn-large" id="goals-save">Speichern</button>
+      <button type="button" class="btn btn-ghost btn-block" id="goals-cancel">Abbrechen</button>
     </div>
   </div>
 

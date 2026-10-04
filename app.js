@@ -5,9 +5,11 @@
    To-do-Liste, Fokus-Timer, Abend-Check, Datensicherung
    ========================================================= */
 
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.5.0';
 const STORAGE_KEY = 'fokus-app-v1';
 const LONG_RUN_MIN = 180;   // ab hier fragen wir, ob der Timer vergessen wurde
+const BACKUP_REMIND_DAYS = 7;
+const DAY_MS = 86400000;
 
 const ESTIMATES = [
   { min: 15, label: '15 min' },
@@ -24,6 +26,29 @@ const PRIORITIES = [
   { id: 'hoch', label: 'Hoch', rank: 0 },
   { id: 'mittel', label: 'Mittel', rank: 1 },
   { id: 'niedrig', label: 'Niedrig', rank: 2 },
+];
+
+/* Lebensbereiche für Aufgaben, Wochenziele und Auswertung */
+const AREAS = [
+  { id: 'studium', label: 'Studium', short: 'Studium' },
+  { id: 'tiktok', label: 'TikTok Shop', short: 'TikTok' },
+  { id: 'privat', label: 'Privat', short: 'Privat' },
+];
+
+const REPEATS = [
+  { id: '', label: 'Nie' },
+  { id: 'daily', label: 'Täglich' },
+  { id: 'weekdays', label: 'Werktags' },
+  { id: 'weekly', label: 'Wöchentlich' },
+];
+
+const DUE_CHOICES = [
+  { id: '', label: 'Kein Datum' },
+  { id: 'today', label: 'Heute' },
+  { id: 'tomorrow', label: 'Morgen' },
+  { id: 'weekend', label: 'Bis Sonntag' },
+  { id: 'nextweek', label: 'Nächste Woche' },
+  { id: 'pick', label: 'Datum wählen …' },
 ];
 
 const BLOCK_DURATIONS = [15, 25, 30, 45, 60, 75, 90, 120, 150, 180, 240];
@@ -61,22 +86,22 @@ const BLOCKERS = [
 
 /* Vorschläge passend zu Studium und TikTok-Shop-Affiliate */
 const SUGGESTIONS = [
-  { title: 'Vorlesung nacharbeiten und zusammenfassen', min: 60 },
-  { title: 'Hooks für 5 Videos schreiben', min: 30 },
-  { title: 'Karteikarten für die Prüfung erstellen', min: 45 },
-  { title: '3 Produktvideos drehen', min: 60 },
-  { title: 'Übungsblatt bearbeiten', min: 60 },
-  { title: '2 Videos schneiden und posten', min: 60 },
-  { title: 'Altklausur unter Prüfungsbedingungen lösen', min: 90 },
-  { title: '5 neue Produkte im Affiliate-Marktplatz auswählen', min: 30 },
-  { title: 'Hausarbeit: eine Seite schreiben', min: 60 },
-  { title: 'Samples bei 3 Shops anfragen', min: 30 },
-  { title: 'Literatur für die Hausarbeit recherchieren', min: 45 },
-  { title: '10 virale Produktvideos analysieren', min: 45 },
-  { title: 'Lernplan für die Prüfungsphase erstellen', min: 30 },
-  { title: 'Content-Plan für die Woche erstellen', min: 45 },
-  { title: 'Ein Kapitel im Skript durcharbeiten', min: 90 },
-  { title: 'Video-Statistiken der Woche auswerten', min: 30 },
+  { title: 'Vorlesung nacharbeiten und zusammenfassen', min: 60, area: 'studium' },
+  { title: 'Hooks für 5 Videos schreiben', min: 30, area: 'tiktok' },
+  { title: 'Karteikarten für die Prüfung erstellen', min: 45, area: 'studium' },
+  { title: '3 Produktvideos drehen', min: 60, area: 'tiktok' },
+  { title: 'Übungsblatt bearbeiten', min: 60, area: 'studium' },
+  { title: '1 Video posten', min: 30, area: 'tiktok', repeat: 'daily' },
+  { title: 'Altklausur unter Prüfungsbedingungen lösen', min: 90, area: 'studium' },
+  { title: '5 neue Produkte im Affiliate-Marktplatz auswählen', min: 30, area: 'tiktok' },
+  { title: 'Hausarbeit: eine Seite schreiben', min: 60, area: 'studium' },
+  { title: 'Samples bei 3 Shops anfragen', min: 30, area: 'tiktok' },
+  { title: 'Literatur für die Hausarbeit recherchieren', min: 45, area: 'studium' },
+  { title: '10 virale Produktvideos analysieren', min: 45, area: 'tiktok' },
+  { title: 'Lernplan für die Prüfungsphase erstellen', min: 30, area: 'studium' },
+  { title: 'Content-Plan für die Woche erstellen', min: 45, area: 'tiktok', repeat: 'weekly' },
+  { title: 'Ein Kapitel im Skript durcharbeiten', min: 90, area: 'studium' },
+  { title: 'Video-Statistiken der Woche auswerten', min: 30, area: 'tiktok', repeat: 'weekly' },
 ];
 const SUGGEST_COUNT = 4;
 
@@ -86,6 +111,7 @@ const ICONS = {
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor"/></svg>',
+  repeat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.7M20 4v4.7h-4.7M20 12a8 8 0 0 1-13.7 5.6L4 15.3M4 20v-4.7h4.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
 };
 
@@ -142,6 +168,15 @@ function estimateLabel(min) {
 function labelOf(list, id) { return (list.find(x => x.id === id) || {}).label || id; }
 function catLabel(id) { return labelOf(CATEGORIES, id || 'sonstiges'); }
 function prioOf(id) { return PRIORITIES.find(p => p.id === id) || PRIORITIES[1]; }
+function areaOf(id) { return AREAS.find(a => a.id === id) || null; }
+
+/** Montag der aktuellen Woche */
+function weekStart(d = new Date()) {
+  const x = startOfDay(d);
+  return addDays(x, -((x.getDay() + 6) % 7));
+}
+
+function daysBetween(a, b) { return Math.round((startOfDay(b) - startOfDay(a)) / DAY_MS); }
 
 /** Kategorie eines Blocks (null = Block für eine Aufgabe der To-do-Liste) */
 function sessionCategory(s) { return s.priorityId ? null : (s.category || 'sonstiges'); }
@@ -160,7 +195,11 @@ function defaultState() {
     days: {},
     sessions: [],
     running: null,
-    meta: { lastBackup: null, statsMode: '7', calFrom: null, calTo: null, taskSort: 'prio' },
+    meta: {
+      lastBackup: null, backupSnooze: null, firstUse: null,
+      statsMode: '7', calFrom: null, calTo: null,
+      taskSort: 'prio', lastArea: null, goals: {},
+    },
   };
 }
 
@@ -173,6 +212,10 @@ function cleanTask(t) {
     createdAt: Number(t.createdAt) || Date.now(),
     done: !!t.done,
     doneAt: t.done ? (Number(t.doneAt) || Number(t.createdAt) || Date.now()) : null,
+    area: AREAS.some(a => a.id === t.area) ? t.area : null,
+    dueDate: /^\d{4}-\d{2}-\d{2}$/.test(t.dueDate || '') ? t.dueDate : null,
+    repeat: REPEATS.some(r => r.id && r.id === t.repeat) ? t.repeat : null,
+    startDate: /^\d{4}-\d{2}-\d{2}$/.test(t.startDate || '') ? t.startDate : null,
   };
 }
 
@@ -229,7 +272,18 @@ function normalizeState(raw) {
     if (['7', '30', '90', 'cal'].includes(String(m.statsMode))) s.meta.statsMode = String(m.statsMode);
     if (m.calFrom) s.meta.calFrom = m.calFrom;
     if (m.calTo) s.meta.calTo = m.calTo;
-    if (m.taskSort === 'added') s.meta.taskSort = 'added';
+    if (['added', 'due'].includes(m.taskSort)) s.meta.taskSort = m.taskSort;
+    if (m.backupSnooze) s.meta.backupSnooze = m.backupSnooze;
+    if (m.firstUse) s.meta.firstUse = m.firstUse;
+    if (AREAS.some(a => a.id === m.lastArea)) s.meta.lastArea = m.lastArea;
+    if (m.goals && typeof m.goals === 'object') {
+      for (const a of AREAS) if (Number(m.goals[a.id]) > 0) s.meta.goals[a.id] = Number(m.goals[a.id]);
+    }
+  }
+  // Seit wann die App genutzt wird (für die Backup-Erinnerung)
+  if (!s.meta.firstUse) {
+    const times = [...s.sessions.map(x => x.start), ...s.tasks.map(t => t.createdAt)];
+    s.meta.firstUse = times.length ? Math.min(...times) : Date.now();
   }
   return s;
 }
@@ -265,13 +319,87 @@ function todaySessions() { const k = todayKey(); return state.sessions.filter(s 
 function findTask(id) { return id ? state.tasks.find(t => t.id === id) || null : null; }
 function isDoneOn(t, key) { return t.done && t.doneAt && ymd(new Date(t.doneAt)) === key; }
 
+const SORTS = [
+  { id: 'prio', label: 'Nach Priorität' },
+  { id: 'due', label: 'Nach Fälligkeit' },
+  { id: 'added', label: 'Nach Datum' },
+];
+
+function dueRank(t) { return t.dueDate ? parseYmd(t.dueDate).getTime() : Infinity; }
+
 function sortTasks(list) {
-  const byPrio = state.meta.taskSort !== 'added';
-  return [...list].sort((a, b) =>
-    (byPrio ? prioOf(a.priority).rank - prioOf(b.priority).rank : 0) || a.createdAt - b.createdAt);
+  const mode = state.meta.taskSort;
+  return [...list].sort((a, b) => {
+    const p = prioOf(a.priority).rank - prioOf(b.priority).rank;
+    const d = dueRank(a) - dueRank(b);
+    if (mode === 'due') return d || p || a.createdAt - b.createdAt;
+    if (mode === 'added') return a.createdAt - b.createdAt;
+    return p || d || a.createdAt - b.createdAt;
+  });
 }
 
-function openTasks() { return sortTasks(state.tasks.filter(t => !t.done)); }
+/** Aufgabe sichtbar? (wiederkehrende erscheinen erst an ihrem Tag) */
+function isVisible(t) { return !t.startDate || t.startDate <= todayKey(); }
+function openTasks() { return sortTasks(state.tasks.filter(t => !t.done && isVisible(t))); }
+function upcomingTasks() { return state.tasks.filter(t => !t.done && !isVisible(t)); }
+
+/** Fälligkeit als Text: „Heute fällig“, „Überfällig seit 2 Tagen“ … */
+function dueInfo(t) {
+  if (!t.dueDate || t.done) return null;
+  const diff = daysBetween(new Date(), parseYmd(t.dueDate));
+  if (diff < 0) return { text: `Überfällig seit ${-diff} ${diff === -1 ? 'Tag' : 'Tagen'}`, cls: 'due-over' };
+  if (diff === 0) return { text: 'Heute fällig', cls: 'due-soon' };
+  if (diff === 1) return { text: 'Morgen fällig', cls: 'due-soon' };
+  const d = parseYmd(t.dueDate);
+  if (diff < 7) return { text: `Fällig ${d.toLocaleDateString('de-DE', { weekday: 'long' })}`, cls: '' };
+  return { text: `Fällig am ${d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' })}`, cls: '' };
+}
+
+/** Auswahl im Fälligkeits-Menü → Datum (JJJJ-MM-TT) */
+function resolveDue(choice, picked) {
+  const today = startOfDay(new Date());
+  if (choice === 'today') return ymd(today);
+  if (choice === 'tomorrow') return ymd(addDays(today, 1));
+  if (choice === 'weekend') return ymd(addDays(today, (7 - today.getDay()) % 7));
+  if (choice === 'nextweek') return ymd(addDays(weekStart(today), 7));
+  if (choice === 'pick') return /^\d{4}-\d{2}-\d{2}$/.test(picked || '') ? picked : null;
+  return null;
+}
+
+/** Nächster Termin einer wiederkehrenden Aufgabe */
+function nextOccurrence(repeat) {
+  const today = startOfDay(new Date());
+  if (repeat === 'weekly') return ymd(addDays(today, 7));
+  let d = addDays(today, 1);
+  if (repeat === 'weekdays') while (d.getDay() === 0 || d.getDay() === 6) d = addDays(d, 1);
+  return ymd(d);
+}
+
+/** Bereich eines Blocks (gespeichert oder über die Aufgabe) */
+function sessionArea(s) {
+  if (s.area !== undefined) return s.area;
+  const t = findTask(s.priorityId);
+  return t ? t.area : null;
+}
+
+/** Fokusminuten pro Bereich in dieser Woche (inkl. laufendem Block) */
+function weekFocusByArea() {
+  const from = ymd(weekStart());
+  const out = {};
+  for (const x of state.sessions) {
+    if (x.date < from) continue;
+    const a = sessionArea(x);
+    if (a) out[a] = (out[a] || 0) + sessionMin(x);
+  }
+  const r = state.running;
+  if (r && r.priorityId) {
+    const t = findTask(r.priorityId);
+    if (t && t.area) out[t.area] = (out[t.area] || 0) + ((r.stopAt || Date.now()) - r.start) / 60000;
+  }
+  return out;
+}
+
+function hasGoals() { return AREAS.some(a => state.meta.goals[a.id] > 0); }
 function doneToday() { const k = todayKey(); return state.tasks.filter(t => isDoneOn(t, k)).sort((a, b) => a.doneAt - b.doneAt); }
 
 /** Investierte Minuten einer Aufgabe (inkl. laufendem Block) */
@@ -335,6 +463,24 @@ function renderPrioPicker(container, value, onPick) {
   };
 }
 
+function renderAreaPicker(container, value, onPick) {
+  container.innerHTML = [...AREAS, { id: '', short: 'Ohne' }].map(a =>
+    `<button type="button" class="prio-opt area-opt ${a.id ? `a-${a.id}` : 'a-none'}" data-area="${a.id}" aria-pressed="${(value || '') === a.id}">${a.short}</button>`
+  ).join('');
+  container.onclick = e => {
+    const btn = e.target.closest('button[data-area]');
+    if (btn) onPick(btn.dataset.area || null);
+  };
+}
+
+function dueOptions() {
+  return DUE_CHOICES.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
+}
+
+function repeatOptions() {
+  return REPEATS.map(r => `<option value="${r.id}">${r.label}</option>`).join('');
+}
+
 /* ---------- Auswahl „Woran arbeitest du?“ ---------- */
 
 let recentTargets = [];
@@ -393,9 +539,111 @@ function selectHasValue(sel, v) { return $$('option', sel).some(o => o.value ===
 
 function renderToday() {
   $('#today-date').textContent = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  renderBackupBanner();
   renderTimer();
+  renderWeek();
   renderTasks();
   renderEvening();
+}
+
+/* ---------- Erinnerung an die Datensicherung ---------- */
+
+function backupDue() {
+  const m = state.meta;
+  const now = Date.now();
+  if (!state.tasks.length && !state.sessions.length) return null;
+  if (now - (m.firstUse || now) < BACKUP_REMIND_DAYS * DAY_MS) return null;
+  if (m.backupSnooze && now < m.backupSnooze) return null;
+  if (!m.lastBackup) return { days: null };
+  const days = Math.floor((now - m.lastBackup) / DAY_MS);
+  return days >= BACKUP_REMIND_DAYS ? { days } : null;
+}
+
+function renderBackupBanner() {
+  const b = backupDue();
+  const el = $('#backup-banner');
+  el.hidden = !b;
+  if (!b) return;
+  $('#backup-text').textContent = b.days === null
+    ? 'Du hast deine Daten noch nie gesichert. Sie liegen nur auf diesem iPhone.'
+    : `Deine letzte Sicherung ist ${b.days} Tage her. Deine Daten liegen nur auf diesem iPhone.`;
+}
+
+/* ---------- Wochenziele ---------- */
+
+function renderWeek() {
+  const card = $('#week-card');
+  if (!hasGoals()) {
+    card.innerHTML = `
+      <div class="week-empty">
+        <span>Setz dir Wochenziele für Studium und TikTok Shop.</span>
+        <button type="button" class="btn btn-small" data-action="goals">Festlegen</button>
+      </div>`;
+    return;
+  }
+  const done = weekFocusByArea();
+  const rows = AREAS.filter(a => state.meta.goals[a.id] > 0).map(a => {
+    const goal = state.meta.goals[a.id];
+    const have = done[a.id] || 0;
+    const reached = have >= goal;
+    return `
+      <div class="goal-row a-${a.id}">
+        <div class="goal-top">
+          <span class="goal-name"><i class="area-dot"></i>${a.label}</span>
+          <span class="goal-val ${reached ? 'is-reached' : ''}">${fmtMin(have)} von ${fmtMin(goal)}${reached ? ' ✓' : ''}</span>
+        </div>
+        <span class="goal-bar"><span style="width:${Math.min(100, (have / goal) * 100)}%"></span></span>
+      </div>`;
+  }).join('');
+  const left = Math.max(0, 6 - ((new Date().getDay() + 6) % 7));
+  card.innerHTML = `
+    <div class="card-head">
+      <h2>Diese Woche</h2>
+      <button type="button" class="link-btn" data-action="goals">Ziele ändern</button>
+    </div>
+    ${rows}
+    <p class="week-foot">${left === 0 ? 'Letzter Tag der Woche.' : `Noch ${left} ${left === 1 ? 'Tag' : 'Tage'} bis Sonntag.`}</p>`;
+}
+
+let goalDraft = {};
+
+function openGoalsSheet() {
+  goalDraft = { ...state.meta.goals };
+  renderGoalsSheet();
+  openSheet('#goals-sheet');
+}
+
+function renderGoalsSheet() {
+  $('#goals-list').innerHTML = AREAS.map(a => {
+    const h = Math.round((goalDraft[a.id] || 0) / 60);
+    return `
+      <div class="stepper-row a-${a.id}">
+        <span class="goal-name"><i class="area-dot"></i>${a.label}</span>
+        <div class="stepper">
+          <button type="button" data-step="-1" data-area="${a.id}" aria-label="${a.label}: eine Stunde weniger" ${h <= 0 ? 'disabled' : ''}>−</button>
+          <strong>${h ? `${h} h` : 'Kein Ziel'}</strong>
+          <button type="button" data-step="1" data-area="${a.id}" aria-label="${a.label}: eine Stunde mehr" ${h >= 60 ? 'disabled' : ''}>+</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function onGoalStep(e) {
+  const btn = e.target.closest('button[data-step]');
+  if (!btn) return;
+  const id = btn.dataset.area;
+  const h = Math.max(0, Math.min(60, Math.round((goalDraft[id] || 0) / 60) + Number(btn.dataset.step)));
+  if (h) goalDraft[id] = h * 60; else delete goalDraft[id];
+  renderGoalsSheet();
+}
+
+function saveGoals() {
+  state.meta.goals = { ...goalDraft };
+  saveState();
+  closeSheet('#goals-sheet');
+  renderToday();
+  if (currentView === 'auswertung') renderAuswertung();
+  toast(hasGoals() ? 'Wochenziele gespeichert' : 'Wochenziele entfernt');
 }
 
 /* ---------- To-do-Liste ---------- */
@@ -404,6 +652,7 @@ let suggestOffset = 0;
 let suggestOpen = false;
 let newPrio = 'mittel';
 let newEst = null;
+let newArea = null;   // wird beim Start auf den zuletzt genutzten Bereich gesetzt
 
 function blockCountLabel(n) { return `${n} ${n === 1 ? 'Block' : 'Blöcken'}`; }
 
@@ -415,6 +664,14 @@ function taskItem(t) {
   const est = t.estimateMin || 0;
   const over = est > 0 && inv > est;
   const pr = prioOf(t.priority);
+  const area = areaOf(t.area);
+  const due = dueInfo(t);
+  const tags = t.done ? '' : [
+    `<span class="prio-pill p-${pr.id}">${pr.label}</span>`,
+    area ? `<span class="area-tag a-${area.id}"><i class="area-dot"></i>${area.short}</span>` : '',
+    due ? `<span class="due-tag ${due.cls}">${due.text}</span>` : '',
+    t.repeat ? `<span class="repeat-tag" aria-label="${labelOf(REPEATS, t.repeat)}">${ICONS.repeat}${labelOf(REPEATS, t.repeat)}</span>` : '',
+  ].join('');
 
   let meta;
   if (isRunning) meta = `<span class="live">Läuft gerade</span>, ${fmtMin(inv)} investiert`;
@@ -434,7 +691,8 @@ function taskItem(t) {
         aria-label="${t.done ? 'Als offen markieren' : 'Als erledigt markieren'}"><span>${ICONS.check}</span></button>
       <button type="button" class="prio-body" data-action="edit" aria-label="${esc(t.title)} bearbeiten">
         <span class="prio-title">${esc(t.title)}</span>
-        <span class="prio-meta">${t.done ? '' : `<span class="prio-pill p-${pr.id}">${pr.label}</span>`}${meta}</span>
+        ${tags ? `<span class="task-tags">${tags}</span>` : ''}
+        <span class="prio-meta">${meta}</span>
         ${bar}
       </button>
       ${action}
@@ -459,7 +717,17 @@ function renderTasks() {
   $('#done-list').innerHTML = done.map(taskItem).join('');
 
   $('#plan-count').textContent = open.length ? `${open.length} offen` : '';
-  $('#btn-sort').textContent = state.meta.taskSort === 'added' ? 'Nach Datum' : 'Nach Priorität';
+  $('#btn-sort').textContent = (SORTS.find(x => x.id === state.meta.taskSort) || SORTS[0]).label;
+  const upcoming = upcomingTasks();
+  $('#upcoming-note').hidden = !upcoming.length;
+  if (upcoming.length) {
+    const next = upcoming.reduce((a, b) => (a.startDate < b.startDate ? a : b));
+    const when = daysBetween(new Date(), parseYmd(next.startDate)) === 1 ? 'morgen'
+      : `am ${parseYmd(next.startDate).toLocaleDateString('de-DE', { weekday: 'long' })}`;
+    $('#upcoming-note').innerHTML = `${ICONS.repeat}<span>${upcoming.length === 1
+      ? `„${esc(next.title)}“ erscheint ${when} wieder.`
+      : `${upcoming.length} wiederkehrende Aufgaben erscheinen später wieder, die nächste ${when}.`}</span>`;
+  }
   $('#btn-sort').hidden = open.length < 2;
   $('#prio-form').classList.toggle('is-first', !open.length && !done.length);
 
@@ -472,6 +740,8 @@ function renderAddOptions() {
   const hasText = !!$('#prio-title').value.trim();
   $('#add-options').hidden = !hasText;
   renderPrioPicker($('#new-prio'), newPrio, v => { newPrio = v; renderAddOptions(); });
+  renderAreaPicker($('#new-area'), newArea, v => { newArea = v; renderAddOptions(); });
+  $('#new-due-date').hidden = $('#new-due').value !== 'pick';
   $('#prio-est-chips').innerHTML = ESTIMATES.map(e =>
     `<button type="button" class="chip chip-sm" data-min="${e.min}" aria-pressed="${newEst === e.min}">${e.label}</button>`
   ).join('');
@@ -497,11 +767,21 @@ function renderSuggestions() {
   ).join('');
 }
 
-function pushTask(title, priority, estimateMin) {
-  const t = cleanTask({ id: uid(), title, priority, estimateMin, createdAt: Date.now(), done: false });
+function pushTask(fields) {
+  const t = cleanTask({ id: uid(), createdAt: Date.now(), done: false, priority: 'mittel', ...fields });
   state.tasks.push(t);
+  if (t.area) state.meta.lastArea = t.area;
   saveState();
   return t;
+}
+
+function resetAddForm() {
+  $('#prio-title').value = '';
+  newPrio = 'mittel';
+  newEst = null;
+  $('#new-due').value = '';
+  $('#new-due-date').value = '';
+  $('#new-repeat').value = '';
 }
 
 function addTask(e) {
@@ -509,10 +789,15 @@ function addTask(e) {
   const input = $('#prio-title');
   const title = input.value.trim();
   if (!title) { input.focus(); return; }
-  pushTask(title, newPrio, newEst);
-  input.value = '';
-  newPrio = 'mittel';
-  newEst = null;
+  pushTask({
+    title,
+    priority: newPrio,
+    estimateMin: newEst,
+    area: newArea,
+    dueDate: resolveDue($('#new-due').value, $('#new-due-date').value),
+    repeat: $('#new-repeat').value || null,
+  });
+  resetAddForm();
   input.blur();
   renderTasks();
   renderTimer();
@@ -522,7 +807,8 @@ function addTask(e) {
 function onSuggestClick(e) {
   const chip = e.target.closest('.suggest-chip');
   if (!chip) return;
-  pushTask(chip.dataset.title, 'mittel', Number(chip.dataset.min));
+  const sug = SUGGESTIONS.find(x => x.title === chip.dataset.title) || {};
+  pushTask({ title: chip.dataset.title, estimateMin: Number(chip.dataset.min), area: sug.area || null, repeat: sug.repeat || null });
   renderTasks();
   renderTimer();
   renderEvening();
@@ -536,17 +822,40 @@ function onTaskClick(e) {
   if (!t) return;
 
   if (btn.dataset.action === 'toggle') {
-    t.done = !t.done;
-    t.doneAt = t.done ? Date.now() : null;
-    saveState();
-    renderTasks();
-    renderTimer();
-    renderEvening();
-    if (t.done) toast('Erledigt. Stark!', { label: 'Rückgängig', fn: () => { t.done = false; t.doneAt = null; saveState(); renderToday(); } });
+    toggleTask(t);
   } else if (btn.dataset.action === 'edit') {
     openEditSheet(t);
   } else if (btn.dataset.action === 'start') {
     beginFocus({ priorityId: t.id, category: null, label: '' });
+  }
+}
+
+/** Abhaken bzw. wieder öffnen; wiederkehrende Aufgaben bekommen einen nächsten Termin */
+function toggleTask(t) {
+  t.done = !t.done;
+  t.doneAt = t.done ? Date.now() : null;
+  let spawned = null;
+  if (t.done && t.repeat) {
+    const next = nextOccurrence(t.repeat);
+    spawned = cleanTask({
+      ...t, id: uid(), createdAt: Date.now(), done: false, doneAt: null,
+      startDate: next, dueDate: t.dueDate ? next : null,
+    });
+    state.tasks.push(spawned);
+  }
+  saveState();
+  renderToday();
+  if (t.done) {
+    toast(spawned ? 'Erledigt. Sie erscheint wieder, wenn sie dran ist.' : 'Erledigt. Stark!', {
+      label: 'Rückgängig',
+      fn: () => {
+        t.done = false;
+        t.doneAt = null;
+        if (spawned) state.tasks = state.tasks.filter(x => x.id !== spawned.id);
+        saveState();
+        renderToday();
+      },
+    });
   }
 }
 
@@ -577,12 +886,19 @@ function renderOthers() {
 
 let editId = null;
 let editPrio = 'mittel';
+let editArea = null;
 
 function openEditSheet(t) {
   editId = t.id;
   editPrio = t.priority;
+  editArea = t.area;
   $('#edit-title').value = t.title;
   updateEditPrio();
+  updateEditArea();
+  $('#edit-due').value = t.dueDate ? 'pick' : '';
+  $('#edit-due-date').value = t.dueDate || '';
+  $('#edit-due-date').hidden = !t.dueDate;
+  $('#edit-repeat').value = t.repeat || '';
   let opts = '<option value="">Keine Schätzung</option>' +
     ESTIMATES.map(e => `<option value="${e.min}">${e.label}</option>`).join('');
   if (t.estimateMin && !ESTIMATES.some(e => e.min === t.estimateMin)) {
@@ -598,6 +914,10 @@ function updateEditPrio() {
   renderPrioPicker($('#edit-prio'), editPrio, v => { editPrio = v; updateEditPrio(); });
 }
 
+function updateEditArea() {
+  renderAreaPicker($('#edit-area'), editArea, v => { editArea = v; updateEditArea(); });
+}
+
 function renderEditBlocks() {
   const list = state.sessions.filter(x => x.priorityId === editId).sort((a, b) => a.start - b.start);
   $('#edit-blocks-wrap').hidden = !list.length;
@@ -611,7 +931,11 @@ function saveEdit() {
   if (!title) { $('#edit-title').focus(); return; }
   t.title = title;
   t.priority = editPrio;
+  t.area = editArea;
   t.estimateMin = $('#edit-est').value ? Number($('#edit-est').value) : null;
+  t.dueDate = resolveDue($('#edit-due').value, $('#edit-due-date').value);
+  t.repeat = $('#edit-repeat').value || null;
+  if (t.area) state.meta.lastArea = t.area;
   saveState();
   closeSheet('#edit-sheet');
   renderToday();
@@ -643,7 +967,9 @@ let targetIsManual = false;   // Auswahl bewusst getroffen?
 function runTitle(r) {
   if (r.priorityId) {
     const t = findTask(r.priorityId);
-    return { title: t ? t.title : 'Aufgabe', sub: t ? `Priorität ${prioOf(t.priority).label.toLowerCase()}` : '' };
+    if (!t) return { title: 'Aufgabe', sub: '' };
+    const area = areaOf(t.area);
+    return { title: t.title, sub: area ? area.label : `Priorität ${prioOf(t.priority).label.toLowerCase()}` };
   }
   const cat = catLabel(r.category);
   return r.otherLabel ? { title: r.otherLabel, sub: cat } : { title: cat, sub: '' };
@@ -715,8 +1041,19 @@ function setDial(frac, over, sub) {
   $('#dial-sub').textContent = sub || '';
 }
 
-/** Ohne Timer: Wie viel der Liste ist heute geschafft? */
+/** Ohne Timer: Fortschritt der Wochenziele, sonst: Wie viel der Liste ist heute geschafft? */
 function updateIdleDial() {
+  if (hasGoals()) {
+    const have = weekFocusByArea();
+    let goal = 0, got = 0;
+    for (const a of AREAS) {
+      const g = state.meta.goals[a.id] || 0;
+      goal += g;
+      got += Math.min(g, have[a.id] || 0);
+    }
+    setDial(got / goal, false, `Woche: ${fmtMin(got)} von ${fmtMin(goal)} Ziel`);
+    return;
+  }
   const focus = todaySessions().reduce((a, s) => a + sessionMin(s), 0);
   const done = doneToday().length;
   const total = done + openTasks().length;
@@ -919,18 +1256,19 @@ function saveFinish() {
     end,
     priorityId: t ? t.id : null,
     category: t ? null : (r.category || 'sonstiges'),
+    area: t ? t.area : null,
     label: t ? t.title : (r.otherLabel || catLabel(r.category)),
     distractions: { ...r.distractions },
     rating: finishRating,
   };
   state.sessions.push(session);
-  if (t && $('#finish-done').checked) { t.done = true; t.doneAt = Date.now(); }
   state.running = null;
+  if (t && $('#finish-done').checked) { saveState(); toggleTask(t); }
   saveState();
   stopTicking();
   closeSheet('#finish-sheet');
   renderToday();
-  toast(`Block gespeichert: ${fmtMin(sessionMin(session))}`);
+  if (!(t && $('#finish-done').checked)) toast(`Block gespeichert: ${fmtMin(sessionMin(session))}`);
 }
 
 function resumeFocus() {
@@ -1003,16 +1341,17 @@ function saveAdd() {
     end,
     priorityId: t ? t.id : null,
     category: t ? null : tg.category,
+    area: t ? t.area : null,
     label: t ? t.title : (tg.label || catLabel(tg.category)),
     distractions: {},
     rating: addRating,
     manual: true,
   });
-  if (t && $('#add-done').checked) { t.done = true; t.doneAt = Date.now(); }
   saveState();
+  if (t && $('#add-done').checked) toggleTask(t);
   closeSheet('#add-sheet');
   renderToday();
-  toast('Block nachgetragen');
+  if (!(t && $('#add-done').checked)) toast('Block nachgetragen');
 }
 
 /* ---------- Blöcke ---------- */
@@ -1167,6 +1506,12 @@ function showView(name) {
 function renderAuswertung() {
   if (typeof renderStats === 'function') renderStats();
   renderBackupInfo();
+  renderGoalsSummary();
+}
+
+function renderGoalsSummary() {
+  const parts = AREAS.filter(a => state.meta.goals[a.id] > 0).map(a => `${a.label} ${fmtMin(state.meta.goals[a.id])}`);
+  $('#goals-summary').textContent = parts.length ? parts.join(', ') : 'Noch keine Wochenziele festgelegt.';
 }
 
 /* =========================================================
@@ -1215,6 +1560,8 @@ async function exportData() {
 
 function markBackup() {
   state.meta.lastBackup = Date.now();
+  state.meta.backupSnooze = null;
+  renderBackupBanner();
   saveState();
   renderBackupInfo();
   toast('Sicherung erstellt');
@@ -1261,7 +1608,8 @@ function bindEvents() {
     renderAddOptions();
   });
   $('#btn-sort').addEventListener('click', () => {
-    state.meta.taskSort = state.meta.taskSort === 'added' ? 'prio' : 'added';
+    const i = SORTS.findIndex(x => x.id === state.meta.taskSort);
+    state.meta.taskSort = SORTS[(i + 1) % SORTS.length].id;
     saveState();
     renderTasks();
     renderTimer();
@@ -1272,6 +1620,27 @@ function bindEvents() {
   $('#others-box').addEventListener('click', onBlockDeleteClick);
   $('#edit-blocks').addEventListener('click', onBlockDeleteClick);
   $('#edit-delete').addEventListener('click', deleteEditTask);
+  $('#new-due').addEventListener('change', () => {
+    renderAddOptions();
+    if ($('#new-due').value === 'pick') $('#new-due-date').focus();
+  });
+  $('#edit-due').addEventListener('change', () => {
+    $('#edit-due-date').hidden = $('#edit-due').value !== 'pick';
+    if ($('#edit-due').value === 'pick') $('#edit-due-date').focus();
+  });
+
+  $('#week-card').addEventListener('click', e => { if (e.target.closest('[data-action="goals"]')) openGoalsSheet(); });
+  $('#btn-goals').addEventListener('click', openGoalsSheet);
+  $('#goals-list').addEventListener('click', onGoalStep);
+  $('#goals-save').addEventListener('click', saveGoals);
+  $('#goals-cancel').addEventListener('click', () => closeSheet('#goals-sheet'));
+
+  $('#backup-now').addEventListener('click', exportData);
+  $('#backup-later').addEventListener('click', () => {
+    state.meta.backupSnooze = Date.now() + 3 * DAY_MS;
+    saveState();
+    renderBackupBanner();
+  });
 
   $('#focus-target').addEventListener('change', onTargetChange);
   $('#focus-other').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); startFocus(); } });
@@ -1365,6 +1734,11 @@ document.addEventListener('DOMContentLoaded', () => {
   saveState();   // übernommene/bereinigte Daten sofort festhalten
 
   $('#app-version').textContent = `Fokus, Version ${APP_VERSION}`;
+  newArea = state.meta.lastArea;
+  $('#new-due').innerHTML = dueOptions();
+  $('#edit-due').innerHTML = dueOptions();
+  $('#new-repeat').innerHTML = repeatOptions();
+  $('#edit-repeat').innerHTML = repeatOptions();
   applyTheme(themePref());
   buildDialTicks();
   bindEvents();
