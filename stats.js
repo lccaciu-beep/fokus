@@ -2,10 +2,12 @@
 
 /* =========================================================
    Fokus – Auswertung
-   Kennzahlen, SVG-Diagramme, regelbasierte Erkenntnisse
+   Zeitraum oder Kalender, Kennzahlen, SVG-Diagramme,
+   regelbasierte Erkenntnisse, Einzeltag-Ansicht
    ========================================================= */
 
 const MIN_DATA_DAYS = 3;
+const WEEKLY_FROM_DAYS = 46;   // ab hier zeigt das Tagesdiagramm Wochen statt Tage
 
 /* Farben kommen aus dem Farbschema (styles.css): Klassen c-prio, c-other, conc-1 … conc-5 */
 
@@ -17,20 +19,20 @@ const TIME_SLOTS = [
 ];
 
 const DISTRACTION_TIPS = {
-  handy: 'Leg dein Handy während eines Fokus-Blocks außer Reichweite, am besten in einen anderen Raum, und schalte den iOS-Fokus „Nicht stören“ ein.',
+  handy: 'Leg dein Handy während eines Fokus-Blocks außer Reichweite, am besten in einen anderen Raum, und schalte den iOS-Fokus „Nicht stören“ ein. Für TikTok-Arbeit: Recherche und Posten in eigene Blöcke legen, nicht nebenbei.',
   nachrichten: 'Schließ Mail und Chat während des Blocks komplett. Bündle Nachrichten in 2–3 feste Zeitfenster am Tag, zum Beispiel 11 und 16 Uhr.',
   unterbrechung: 'Mach deine Fokuszeit sichtbar (Kopfhörer, Status, Tür zu) und biete feste Zeiten für Rückfragen an.',
   gedanken: 'Leg einen Zettel neben dich. Schreib abschweifende Gedanken sofort auf und kehr dann zur Aufgabe zurück, denn erledigen kannst du sie später.',
   muede: 'Arbeite in kürzeren Blöcken (25–45 min) mit echten Pausen: aufstehen, Wasser trinken, kurz an die frische Luft.',
-  unklar: 'Schreib vor dem Start den ersten konkreten Schritt auf, zum Beispiel „Gliederung mit 5 Punkten“ statt „Präsentation machen“.',
+  unklar: 'Schreib vor dem Start den ersten konkreten Schritt auf, zum Beispiel „Gliederung mit 5 Punkten“ statt „Hausarbeit machen“.',
 };
 
 const BLOCKER_TIPS = {
   handy: 'Gib dem Handy einen festen Platz außerhalb deines Arbeitsbereichs und lege App-Limits für Social Media fest (Einstellungen › Bildschirmzeit).',
-  meetings: 'Blocke dir im Kalender feste Fokuszeiten wie Termine, idealerweise vormittags, und lege Meetings gesammelt auf den Nachmittag.',
+  meetings: 'Blocke dir feste Fokuszeiten wie Termine, idealerweise vormittags, und lege Vorlesungen, Calls und Absprachen gesammelt auf den Nachmittag.',
   muede: 'Achte auf feste Schlafenszeiten und plane anspruchsvolle Aufgaben in deine wachste Tageszeit. Kurze Pausen alle 60–90 min helfen.',
-  unklar: 'Formuliere Prioritäten als konkrete Ergebnisse („Entwurf Kapitel 2 fertig“) und nicht als Themen („Kapitel 2“).',
-  zuviel: 'Plane höchstens so viel, wie du an guten Tagen wirklich schaffst. Eine erledigte Priorität schlägt drei angefangene.',
+  unklar: 'Formuliere Aufgaben als konkrete Ergebnisse („Entwurf Kapitel 2 fertig“) und nicht als Themen („Kapitel 2“).',
+  zuviel: 'Markiere höchstens 3 Aufgaben als „Hoch“ und arbeite sie zuerst ab. Eine erledigte Aufgabe schlägt drei angefangene.',
   aufgeschoben: 'Starte mit nur 10 Minuten. Der Anfang ist die größte Hürde, danach läuft es meist von selbst.',
 };
 
@@ -46,6 +48,12 @@ function weekdayShort(date) {
 
 function dayLabelLong(date) {
   return date.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' });
+}
+
+function dateLabel(date, withWeekday = true) {
+  return date.toLocaleDateString('de-DE', withWeekday
+    ? { weekday: 'short', day: 'numeric', month: 'short' }
+    : { day: 'numeric', month: 'short' });
 }
 
 /** Konzentration 1–5 als Helligkeitsstufe der Akzentfarbe */
@@ -69,55 +77,94 @@ function barPath(x, y, w, h, r = 4) {
   return `M${x},${y + h}V${y + rr}Q${x},${y} ${x + rr},${y}H${x + w - rr}Q${x + w},${y} ${x + w},${y + rr}V${y + h}Z`;
 }
 
+/** Tage mit irgendeinem Eintrag (für Kalenderpunkte) */
+function datesWithData() {
+  const set = new Set(state.sessions.map(s => s.date));
+  for (const [k, d] of Object.entries(state.days)) if (d.evening) set.add(k);
+  for (const t of state.tasks) if (t.doneAt) set.add(ymd(new Date(t.doneAt)));
+  return set;
+}
+
+/* =========================================================
+   Zeitraum
+   ========================================================= */
+
+let calMonth = null;      // angezeigter Monat im Kalender
+let calPending = false;   // erster Tag gewählt, zweiter Tipp erweitert zum Zeitraum
+
+function getRange() {
+  const today = startOfDay(new Date());
+  const mode = state.meta.statsMode;
+  if (mode === 'cal') {
+    let from = state.meta.calFrom ? parseYmd(state.meta.calFrom) : today;
+    let to = state.meta.calTo ? parseYmd(state.meta.calTo) : from;
+    if (to < from) [from, to] = [to, from];
+    if (to > today) to = today;
+    if (from > today) from = today;
+    const days = Math.round((to - from) / 86400000) + 1;
+    return { from, to, days, single: days === 1 };
+  }
+  const n = Number(mode) || 7;
+  return { from: addDays(today, -(n - 1)), to: today, days: n, single: false };
+}
+
+function rangeLabel(r) {
+  if (r.single) return r.from.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const sameYear = r.from.getFullYear() === r.to.getFullYear();
+  const f = r.from.toLocaleDateString('de-DE', sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
+  const t = r.to.toLocaleDateString('de-DE', { day: 'numeric', month: 'short', year: 'numeric' });
+  return `${f} bis ${t} (${r.days} Tage)`;
+}
+
 /* =========================================================
    Berechnung
    ========================================================= */
 
-function computeStats(n) {
-  const now = new Date();
-  const todayStr = ymd(now);
+function computeStats(range) {
+  const todayStr = todayKey();
   const dates = [];
-  for (let i = n - 1; i >= 0; i--) dates.push(ymd(addDays(now, -i)));
+  for (let d = new Date(range.from); d <= range.to; d = addDays(d, 1)) dates.push(ymd(d));
   const inRange = new Set(dates);
+  const startMs = range.from.getTime();
+  const endMs = addDays(range.to, 1).getTime();
   const sessions = state.sessions.filter(s => inRange.has(s.date));
 
   const days = dates.map(date => {
-    const day = state.days[date] || { priorities: [] };
     const ses = sessions.filter(s => s.date === date);
-    let prioMin = 0, otherMin = 0;
+    let taskMin = 0, otherMin = 0;
     for (const s of ses) {
-      if (s.priorityId) prioMin += sessionMin(s); else otherMin += sessionMin(s);
+      if (s.priorityId) taskMin += sessionMin(s); else otherMin += sessionMin(s);
     }
-    const ev = day.evening;
+    const ev = (state.days[date] || {}).evening;
     return {
       date,
       d: parseYmd(date),
       isToday: date === todayStr,
-      prios: day.priorities || [],
       ses,
-      prioMin,
+      taskMin,
       otherMin,
-      plannedMin: sum((day.priorities || []).map(p => p.estimateMin || 0)),
+      doneCount: state.tasks.filter(t => isDoneOn(t, date)).length,
       evening: ev && (ev.energy || ev.blocker || ev.note) ? ev : null,
     };
   });
 
-  const dataDays = days.filter(d => d.prios.length || d.ses.length || d.evening).length;
+  const dataDays = days.filter(d => d.ses.length || d.evening || d.doneCount).length;
   const activeDays = days.filter(d => d.ses.length).length;
 
-  // Prioritäten: heute zählt noch nicht, der Tag läuft ja noch
-  const finishedDayPrios = days.filter(d => !d.isToday).flatMap(d => d.prios);
-  const donePrios = finishedDayPrios.filter(p => p.done);
+  // Aufgaben, die im Zeitraum angelegt oder erledigt wurden, und davon erledigte
+  const doneInRange = t => t.done && t.doneAt >= startMs && t.doneAt < endMs;
+  const relevant = state.tasks.filter(t => (t.createdAt >= startMs && t.createdAt < endMs) || doneInRange(t));
+  const doneIn = relevant.filter(doneInRange);
 
-  // Schätzung vs. tatsächlich (nur erledigte Prioritäten mit erfasster Zeit)
+  // Schätzung vs. tatsächlich (nur erledigte Aufgaben mit Schätzung und erfasster Zeit)
   let estSum = 0, actSum = 0, estCount = 0;
-  for (const p of days.flatMap(d => d.prios).filter(p => p.done && p.estimateMin)) {
-    const act = sum(state.sessions.filter(s => s.priorityId === p.id).map(sessionMin));
-    if (act > 0) { estSum += p.estimateMin; actSum += act; estCount++; }
+  for (const t of doneIn.filter(x => x.estimateMin)) {
+    const act = sum(state.sessions.filter(s => s.priorityId === t.id).map(sessionMin));
+    if (act > 0) { estSum += t.estimateMin; actSum += act; estCount++; }
   }
 
-  const totalMin = sum(days.map(d => d.prioMin + d.otherMin));
-  const prioMin = sum(days.map(d => d.prioMin));
+  const totalMin = sum(days.map(d => d.taskMin + d.otherMin));
+  const taskMin = sum(days.map(d => d.taskMin));
   const ratings = sessions.filter(s => s.rating).map(s => s.rating);
 
   // Fokuszeit nach Uhrzeit: Blöcke werden minutengenau auf Stunden verteilt
@@ -150,7 +197,6 @@ function computeStats(n) {
     .map(d => ({ ...d, count: sum(sessions.map(s => (s.distractions || {})[d.id] || 0)) }))
     .sort((a, b) => b.count - a.count);
 
-  // Zeit außerhalb der Prioritäten nach Kategorie (in Minuten)
   const categories = CATEGORIES
     .map(c => ({ ...c, count: sum(sessions.filter(s => sessionCategory(s) === c.id).map(sessionMin)) }))
     .sort((a, b) => b.count - a.count);
@@ -161,19 +207,22 @@ function computeStats(n) {
     .sort((a, b) => b.count - a.count);
   const energies = evenings.map(e => e.energy).filter(Boolean);
 
+  // Wichtige Aufgaben, die seit über 3 Tagen offen sind
+  const staleHigh = state.tasks.filter(t => !t.done && t.priority === 'hoch' && Date.now() - t.createdAt > 3 * 86400000);
+
   return {
-    n, days, sessions, dataDays, activeDays,
-    prioTotal: finishedDayPrios.length,
-    prioDone: donePrios.length,
-    completion: finishedDayPrios.length ? donePrios.length / finishedDayPrios.length : null,
-    totalMin, prioMin, otherMin: totalMin - prioMin,
-    prioShare: totalMin ? prioMin / totalMin : null,
+    range, days, sessions, dataDays, activeDays,
+    relevantCount: relevant.length,
+    doneCount: doneIn.length,
+    completion: relevant.length ? doneIn.length / relevant.length : null,
+    totalMin, taskMin, otherMin: totalMin - taskMin,
+    taskShare: totalMin ? taskMin / totalMin : null,
     focusPerActiveDay: activeDays ? totalMin / activeDays : null,
     estSum, actSum, estCount,
     ratio: estCount ? actSum / estSum : null,
     avgRating: avg(ratings),
     ratingCount: ratings.length,
-    hours, slots, distractions, blockers, evenings, categories,
+    hours, slots, distractions, blockers, evenings, categories, staleHigh,
     avgEnergy: avg(energies),
     energyCount: energies.length,
   };
@@ -191,35 +240,49 @@ function buildInsights(st) {
     out.push({
       score: 50 + (st.ratio - 1.3) * 100,
       title: `Deine Aufgaben dauern ${fmtNum(st.ratio)}× so lange wie geschätzt`,
-      text: `Für ${st.estCount} erledigte Prioritäten hast du ${fmtMin(st.actSum)} gebraucht, geschätzt waren ${fmtMin(st.estSum)}. Darum bleibt am Ende des Tages zwangsläufig etwas liegen.`,
-      tip: `Rechne beim Planen mit Faktor ${fmtNum(Math.round(st.ratio * 10) / 10)}: Aus „1 h“ werden realistisch ${fmtMin(60 * st.ratio)}. Oder plane lieber 2 statt 3 Prioritäten.`,
+      text: `Für ${st.estCount} erledigte Aufgaben hast du ${fmtMin(st.actSum)} gebraucht, geschätzt waren ${fmtMin(st.estSum)}. Darum bleibt am Ende des Tages zwangsläufig etwas liegen.`,
+      tip: `Rechne beim Planen mit Faktor ${fmtNum(Math.round(st.ratio * 10) / 10)}: Aus „1 h“ werden realistisch ${fmtMin(60 * st.ratio)}. Oder nimm dir pro Tag eine Aufgabe weniger vor.`,
     });
   }
 
-  // 2. Wenige Prioritäten erledigt
-  if (st.completion !== null && st.prioTotal >= 3 && st.completion < 0.6) {
+  // 2. Wenige Aufgaben erledigt
+  if (st.completion !== null && st.relevantCount >= 5 && st.completion < 0.6) {
     out.push({
       score: 50 + (0.6 - st.completion) * 150,
-      title: `Nur ${pct(st.completion)} % deiner Prioritäten erledigt`,
-      text: `Von ${st.prioTotal} geplanten Prioritäten hast du ${st.prioDone} abgeschlossen. Wer regelmäßig mehr plant, als er schafft, fühlt sich unproduktiv, auch an eigentlich guten Tagen.`,
-      tip: 'Plane morgen bewusst nur 1–2 Prioritäten und starte den ersten Fokus-Block mit Priorität Nr. 1, noch bevor du Mails liest.',
+      title: `Nur ${pct(st.completion)} % deiner Aufgaben erledigt`,
+      text: `Von ${st.relevantCount} Aufgaben, die du in diesem Zeitraum angelegt oder abgeschlossen hast, sind ${st.doneCount} erledigt. Eine lange offene Liste fühlt sich unproduktiv an, auch an guten Tagen.`,
+      tip: 'Markiere jeden Morgen höchstens 3 Aufgaben als „Hoch“ und starte mit der ersten, noch bevor du Mails oder TikTok öffnest. Was seit Wochen liegt: löschen oder neu formulieren.',
     });
   }
 
-  // 3. Fokuszeit geht in Sonstiges
-  if (st.prioShare !== null && st.totalMin >= 120 && st.prioShare < 0.5) {
+  // 3. Wichtige Aufgaben bleiben liegen
+  if (st.staleHigh.length >= 1) {
+    const oldest = st.staleHigh.reduce((a, b) => (a.createdAt < b.createdAt ? a : b));
+    const daysOld = Math.floor((Date.now() - oldest.createdAt) / 86400000);
+    out.push({
+      score: 45 + Math.min(25, st.staleHigh.length * 6 + daysOld),
+      title: st.staleHigh.length === 1
+        ? 'Eine wichtige Aufgabe bleibt liegen'
+        : `${st.staleHigh.length} wichtige Aufgaben bleiben liegen`,
+      text: `„${oldest.title}“ steht seit ${daysOld} Tagen mit Priorität „Hoch“ auf deiner Liste.`,
+      tip: 'Teil sie in einen ersten Schritt von höchstens 30 Minuten und starte ihn morgen als ersten Block. Ist sie doch nicht wichtig, setz sie auf „Mittel“.',
+    });
+  }
+
+  // 4. Fokuszeit geht in andere Tätigkeiten
+  if (st.taskShare !== null && st.totalMin >= 120 && st.taskShare < 0.5) {
     const topCat = st.categories[0];
     out.push({
-      score: 48 + (0.5 - st.prioShare) * 120,
-      title: `Nur ${pct(st.prioShare)} % deiner Fokuszeit gehen in Prioritäten`,
+      score: 48 + (0.5 - st.taskShare) * 120,
+      title: `Nur ${pct(st.taskShare)} % deiner Fokuszeit gehen in deine To-dos`,
       text: `${fmtMin(st.otherMin)} von ${fmtMin(st.totalMin)} gingen in andere Tätigkeiten` +
         (topCat && topCat.count ? `, am meisten in „${topCat.label}“ (${fmtMin(topCat.count)}).` : '.') +
-        ' Das fühlt sich beschäftigt an, bringt dich bei deinen Prioritäten aber nicht weiter.',
-      tip: 'Reserviere den ersten Block des Tages fest für deine wichtigste Priorität. Sonstiges bündelst du danach in einem gemeinsamen Block.',
+        ' Das fühlt sich beschäftigt an, bringt dich bei deinen Aufgaben aber nicht weiter.',
+      tip: 'Reserviere den ersten Block des Tages fest für deine wichtigste Aufgabe. Anderes bündelst du danach in einem gemeinsamen Block.',
     });
   }
 
-  // 4. Konzentration hängt stark von der Uhrzeit ab
+  // 5. Konzentration hängt stark von der Uhrzeit ab
   const slots = st.slots.filter(s => s.ratings.length >= 2).map(s => ({ ...s, avg: avg(s.ratings) }));
   if (slots.length >= 2) {
     const best = slots.reduce((a, b) => (b.avg > a.avg ? b : a));
@@ -230,12 +293,12 @@ function buildInsights(st) {
         score: 42 + diff * 14,
         title: `Du bist ${best.label} deutlich konzentrierter`,
         text: `Deine Konzentration liegt ${best.label} im Schnitt bei ${fmtNum(best.avg)}, ${worst.label} nur bei ${fmtNum(worst.avg)} von 5.`,
-        tip: `Leg anspruchsvolle Prioritäten ${best.target} und verschieb Routine wie Mails und Orga ${worst.target}.`,
+        tip: `Leg anspruchsvolle Aufgaben wie Lernen oder Hausarbeit ${best.target} und verschieb Routine wie Mails, Posten und Orga ${worst.target}.`,
       });
     }
   }
 
-  // 5. Eine Ablenkung dominiert
+  // 6. Eine Ablenkung dominiert
   const dTotal = sum(st.distractions.map(d => d.count));
   const dTop = st.distractions[0];
   if (dTotal >= 5 && dTop.count / dTotal >= 0.4) {
@@ -249,7 +312,7 @@ function buildInsights(st) {
     });
   }
 
-  // 6. Ein Bremsklotz dominiert
+  // 7. Ein Bremsklotz dominiert
   const withBlocker = st.evenings.filter(e => e.blocker && e.blocker !== 'nichts');
   const bTop = st.blockers.find(b => b.id !== 'nichts');
   if (withBlocker.length >= 3 && bTop && bTop.count >= 2 && bTop.count / withBlocker.length >= 0.4) {
@@ -262,7 +325,7 @@ function buildInsights(st) {
     });
   }
 
-  // 7. Energie im Schnitt niedrig
+  // 8. Energie im Schnitt niedrig
   if (st.energyCount >= 3 && st.avgEnergy < 3) {
     out.push({
       score: 40 + (3 - st.avgEnergy) * 25,
@@ -272,7 +335,7 @@ function buildInsights(st) {
     });
   }
 
-  // 8. Wenig Fokuszeit
+  // 9. Wenig Fokuszeit
   if (st.activeDays >= 3 && st.focusPerActiveDay < 60) {
     out.push({
       score: 34 + (60 - st.focusPerActiveDay) / 3,
@@ -291,12 +354,40 @@ function buildInsights(st) {
    Diagramme (SVG)
    ========================================================= */
 
+/** Tage, bei langen Zeiträumen zu Wochen gebündelt */
+function chartBuckets(st) {
+  const weekly = st.days.length >= WEEKLY_FROM_DAYS;
+  if (!weekly) {
+    return {
+      weekly,
+      items: st.days.map(d => ({
+        d: d.d, isToday: d.isToday, taskMin: d.taskMin, otherMin: d.otherMin,
+        label: dayLabelLong(d.d),
+      })),
+    };
+  }
+  const items = [];
+  for (let i = 0; i < st.days.length; i += 7) {
+    const chunk = st.days.slice(i, i + 7);
+    const last = chunk[chunk.length - 1];
+    items.push({
+      d: chunk[0].d,
+      isToday: chunk.some(c => c.isToday),
+      taskMin: sum(chunk.map(c => c.taskMin)),
+      otherMin: sum(chunk.map(c => c.otherMin)),
+      label: `${dateLabel(chunk[0].d, false)} bis ${dateLabel(last.d, false)}`,
+    });
+  }
+  return { weekly, items };
+}
+
 function chartDaily(st) {
   const W = 340, H = 196, L = 34, R = 6, T = 12, B = 26;
   const iw = W - L - R, ih = H - T - B;
-  const days = st.days, n = days.length;
+  const { weekly, items } = chartBuckets(st);
+  const n = items.length;
 
-  const maxMin = Math.max(60, ...days.map(d => Math.max(d.prioMin + d.otherMin, d.plannedMin)));
+  const maxMin = Math.max(60, ...items.map(d => d.taskMin + d.otherMin));
   const stepH = niceStep(maxMin / 60, 4);
   const topH = Math.ceil(maxMin / 60 / stepH) * stepH;
   const y = m => T + ih - (m / (topH * 60)) * ih;
@@ -309,45 +400,40 @@ function chartDaily(st) {
   }
 
   const slot = iw / n;
-  const bw = Math.max(4, Math.min(24, slot * 0.62));
-  const every = n <= 7 ? 1 : n <= 14 ? 2 : 5;
+  const bw = Math.max(1.5, Math.min(24, slot * 0.66));
+  const every = Math.max(1, Math.ceil(n / 7));
   let bars = '', labels = '', hits = '';
 
-  days.forEach((d, i) => {
+  items.forEach((d, i) => {
     const x = L + i * slot + (slot - bw) / 2;
     const base = y(0);
-    const yPrio = y(d.prioMin);
-    const yTotal = y(d.prioMin + d.otherMin);
+    const yTask = y(d.taskMin);
+    const yTotal = y(d.taskMin + d.otherMin);
+    const r = Math.min(4, bw / 2);
 
-    if (d.otherMin > 0 && d.prioMin > 0) {
-      bars += `<rect x="${x}" y="${yPrio}" width="${bw}" height="${base - yPrio}" class="c-prio"/>`;
+    if (d.otherMin > 0 && d.taskMin > 0) {
+      bars += `<rect x="${x}" y="${yTask}" width="${bw}" height="${base - yTask}" class="c-prio"/>`;
       // 2px Abstand zwischen den Segmenten
-      bars += `<path d="${barPath(x, yTotal, bw, Math.max(0, yPrio - yTotal - 2))}" class="c-other"/>`;
-    } else if (d.prioMin > 0) {
-      bars += `<path d="${barPath(x, yPrio, bw, base - yPrio)}" class="c-prio"/>`;
+      bars += `<path d="${barPath(x, yTotal, bw, Math.max(0, yTask - yTotal - 2), r)}" class="c-other"/>`;
+    } else if (d.taskMin > 0) {
+      bars += `<path d="${barPath(x, yTask, bw, base - yTask, r)}" class="c-prio"/>`;
     } else if (d.otherMin > 0) {
-      bars += `<path d="${barPath(x, yTotal, bw, base - yTotal)}" class="c-other"/>`;
-    }
-
-    if (d.plannedMin > 0) {
-      const yp = y(d.plannedMin);
-      bars += `<line x1="${x - 3}" x2="${x + bw + 3}" y1="${yp}" y2="${yp}" class="c-plan"/>`;
+      bars += `<path d="${barPath(x, yTotal, bw, base - yTotal, r)}" class="c-other"/>`;
     }
 
     if ((n - 1 - i) % every === 0) {
-      const txt = n <= 7 ? weekdayShort(d.d) : `${d.d.getDate()}.`;
+      const txt = weekly ? `${d.d.getDate()}.${d.d.getMonth() + 1}.` : n <= 7 ? weekdayShort(d.d) : `${d.d.getDate()}.`;
       labels += `<text x="${L + i * slot + slot / 2}" y="${H - 8}" text-anchor="middle" class="${d.isToday ? 'today' : ''}">${txt}</text>`;
     }
 
-    const total = d.prioMin + d.otherMin;
-    const detail = total || d.plannedMin
-      ? `<strong>${dayLabelLong(d.d)}</strong>: ${fmtMin(total)} Fokus (${fmtMin(d.prioMin)} Prioritäten, ${fmtMin(d.otherMin)} andere)` +
-        (d.plannedMin ? `, geplant ${fmtMin(d.plannedMin)}` : '')
-      : `<strong>${dayLabelLong(d.d)}</strong>: keine Daten`;
+    const total = d.taskMin + d.otherMin;
+    const detail = total
+      ? `<strong>${d.label}</strong>: ${fmtMin(total)} Fokus, davon ${fmtMin(d.taskMin)} für To-dos und ${fmtMin(d.otherMin)} anderes`
+      : `<strong>${d.label}</strong>: keine Fokuszeit`;
     hits += `<rect class="hit" x="${L + i * slot}" y="${T}" width="${slot}" height="${ih}" data-detail="${esc(detail)}"/>`;
   });
 
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Fokuszeit pro Tag">${g}${bars}${labels}${hits}</svg>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Fokuszeit pro ${weekly ? 'Woche' : 'Tag'}">${g}${bars}${labels}${hits}</svg>`;
 }
 
 function chartHours(st) {
@@ -416,27 +502,31 @@ function chartRanking(items, emptyText, fmtValue) {
    ========================================================= */
 
 const BULB = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.7.5 1.1 1.3 1.1 2.2h5c0-.9.4-1.7 1.1-2.2A6 6 0 0 0 12 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CHEVRON_L = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CHEVRON_R = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function kpiTile(label, value, sub, tone) {
   return `<div class="kpi ${tone || ''}"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div><div class="kpi-sub">${sub}</div></div>`;
 }
+
+function minHtml(m) { return fmtMin(m).replace(/ (h|min)/g, '<small> $1</small>'); }
 
 function renderKpis(st) {
   const c = st.completion;
   const r = st.ratio;
   const a = st.avgRating;
   return `<div class="kpi-grid">
-    ${kpiTile('Prioritäten erledigt',
+    ${kpiTile('Aufgaben erledigt',
       c === null ? '–' : `${pct(c)}<small> %</small>`,
-      c === null ? 'noch keine abgeschlossenen Tage' : `${st.prioDone} von ${st.prioTotal} (ohne heute)`,
+      c === null ? 'noch keine Aufgaben' : `${st.doneCount} von ${st.relevantCount}`,
       c === null ? '' : c >= 0.6 ? 'good' : 'warn')}
     ${kpiTile('Fokuszeit pro aktivem Tag',
-      st.focusPerActiveDay === null ? '–' : fmtMin(st.focusPerActiveDay).replace(/ (h|min)/g, '<small> $1</small>'),
-      `an ${st.activeDays} von ${st.n} Tagen`,
+      st.focusPerActiveDay === null ? '–' : minHtml(st.focusPerActiveDay),
+      `an ${st.activeDays} von ${st.days.length} Tagen`,
       '')}
     ${kpiTile('Tatsächlich vs. geschätzt',
       r === null ? '–' : `${fmtNum(r)}<small>×</small>`,
-      r === null ? 'noch keine erledigte Priorität' : r >= 1.3 ? 'dauert länger als geplant' : r <= 0.8 ? 'schneller als geplant' : 'Schätzung passt gut',
+      r === null ? 'noch keine erledigte Aufgabe mit Schätzung' : r >= 1.3 ? 'dauert länger als geplant' : r <= 0.8 ? 'schneller als geplant' : 'Schätzung passt gut',
       r === null ? '' : r >= 1.3 ? 'warn' : 'good')}
     ${kpiTile('Ø Konzentration',
       a === null ? '–' : `${fmtNum(a)}<small> / 5</small>`,
@@ -451,7 +541,7 @@ function renderFocusCard(top) {
       <p class="focus-label">Dein Ansatzpunkt</p>
       <h2>Du bist auf einem guten Weg</h2>
       <p>Plan und Wirklichkeit liegen nah beieinander, keine deutliche Schwachstelle in diesem Zeitraum.</p>
-      <div class="tip-box">${BULB}<p>Halte deinen Rhythmus und steigere dich behutsam: Plane deine wichtigste Priorität etwas ambitionierter als bisher.</p></div>
+      <div class="tip-box">${BULB}<p>Halte deinen Rhythmus und steigere dich behutsam: Nimm dir für deine wichtigste Aufgabe etwas mehr vor als bisher.</p></div>
     </section>`;
   }
   return `<section class="card focus-card">
@@ -462,42 +552,183 @@ function renderFocusCard(top) {
   </section>`;
 }
 
-function renderStats() {
-  const n = [7, 14, 30].includes(state.meta.statsRange) ? state.meta.statsRange : 7;
-  $$('#range-seg button').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.range) === n)));
+/* ---------- Zeitraum-Auswahl und Kalender ---------- */
 
-  const st = computeStats(n);
+function renderRangeControls() {
+  const mode = state.meta.statsMode;
+  $$('#range-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.range === mode)));
+  const box = $('#cal-box');
+  box.hidden = mode !== 'cal';
+  if (mode === 'cal') renderCalendar();
+}
+
+function renderCalendar() {
+  const range = getRange();
+  if (!calMonth) calMonth = new Date(range.to.getFullYear(), range.to.getMonth(), 1);
+  const today = startOfDay(new Date());
+  const y = calMonth.getFullYear(), m = calMonth.getMonth();
+  const offset = (new Date(y, m, 1).getDay() + 6) % 7;   // Montag zuerst
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const isCurrentMonth = y === today.getFullYear() && m === today.getMonth();
+  const data = datesWithData();
+  const fromK = ymd(range.from), toK = ymd(range.to);
+
+  let cells = '';
+  for (let i = 0; i < offset; i++) cells += '<span class="cal-cell is-blank" aria-hidden="true"></span>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = new Date(y, m, d);
+    const k = ymd(date);
+    const cls = ['cal-cell'];
+    if (k >= fromK && k <= toK) cls.push('in-range');
+    if (k === fromK) cls.push('is-start');
+    if (k === toK) cls.push('is-end');
+    if (k === ymd(today)) cls.push('is-today');
+    if (data.has(k)) cls.push('has-data');
+    const future = date > today;
+    cells += `<button type="button" class="${cls.join(' ')}" data-date="${k}" ${future ? 'disabled' : ''}
+      aria-label="${date.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}"
+      aria-pressed="${k >= fromK && k <= toK}"><span>${d}</span></button>`;
+  }
+
+  $('#cal-box').innerHTML = `
+    <div class="cal-head">
+      <button type="button" class="icon-btn cal-nav" data-cal="prev" aria-label="Vorheriger Monat">${CHEVRON_L}</button>
+      <strong>${calMonth.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}</strong>
+      <button type="button" class="icon-btn cal-nav" data-cal="next" aria-label="Nächster Monat" ${isCurrentMonth ? 'disabled' : ''}>${CHEVRON_R}</button>
+    </div>
+    <div class="cal-grid cal-weekdays" aria-hidden="true"><span>Mo</span><span>Di</span><span>Mi</span><span>Do</span><span>Fr</span><span>Sa</span><span>So</span></div>
+    <div class="cal-grid">${cells}</div>
+    <p class="cal-hint">${calPending
+      ? 'Tippe einen zweiten Tag an, um einen Zeitraum zu wählen.'
+      : 'Tippe einen Tag an. Ein zweiter Tipp wählt einen Zeitraum.'}</p>`;
+}
+
+function onCalendarClick(e) {
+  const nav = e.target.closest('[data-cal]');
+  if (nav) {
+    calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + (nav.dataset.cal === 'next' ? 1 : -1), 1);
+    renderCalendar();
+    return;
+  }
+  const cell = e.target.closest('button[data-date]');
+  if (!cell || cell.disabled) return;
+  const k = cell.dataset.date;
+  if (calPending && state.meta.calFrom && k !== state.meta.calFrom) {
+    const [a, b] = [state.meta.calFrom, k].sort();
+    state.meta.calFrom = a;
+    state.meta.calTo = b;
+    calPending = false;
+  } else {
+    state.meta.calFrom = k;
+    state.meta.calTo = k;
+    calPending = true;
+  }
+  saveState();
+  renderStats();
+}
+
+/* ---------- Einzelner Tag ---------- */
+
+function renderDayView(range) {
+  const k = ymd(range.from);
+  const st = computeStats(range);
+  const day = st.days[0];
+  const ses = [...day.ses].sort((a, b) => a.start - b.start);
+  const done = state.tasks.filter(t => isDoneOn(t, k)).sort((a, b) => a.doneAt - b.doneAt);
+  const ev = day.evening;
+  const prevK = ymd(addDays(range.from, -1));
+  const nextDate = addDays(range.from, 1);
+  const canNext = nextDate <= startOfDay(new Date());
+
+  const head = `
+    <div class="day-nav">
+      <button type="button" class="icon-btn" data-day="${prevK}" aria-label="Vortag">${CHEVRON_L}</button>
+      <strong>${esc(rangeLabel(range))}</strong>
+      <button type="button" class="icon-btn" data-day="${ymd(nextDate)}" aria-label="Folgetag" ${canNext ? '' : 'disabled'}>${CHEVRON_R}</button>
+    </div>`;
+
+  if (!ses.length && !done.length && !ev) {
+    return `${head}<section class="card hint-card">
+      <h2>An diesem Tag gibt es keine Einträge</h2>
+      <p>Wähl im Kalender einen Tag mit Punkt darunter, dort hast du etwas erfasst.</p>
+    </section>`;
+  }
+
+  const blockerLabel = ev && ev.blocker ? labelOf(BLOCKERS, ev.blocker) : null;
+
+  return `${head}
+    <div class="kpi-grid">
+      ${kpiTile('Fokuszeit', st.totalMin >= 1 ? minHtml(st.totalMin) : '–', `in ${ses.length} ${ses.length === 1 ? 'Block' : 'Blöcken'}`, '')}
+      ${kpiTile('Aufgaben erledigt', String(done.length), done.length ? 'an diesem Tag abgehakt' : 'nichts abgehakt', done.length ? 'good' : '')}
+      ${kpiTile('Davon für To-dos', st.totalMin >= 1 ? `${pct(st.taskShare)}<small> %</small>` : '–', st.totalMin >= 1 ? minHtml(st.taskMin) + ' Fokus' : 'keine Fokuszeit', '')}
+      ${kpiTile('Ø Konzentration', st.avgRating === null ? '–' : `${fmtNum(st.avgRating)}<small> / 5</small>`, st.avgRating === null ? 'keine Bewertung' : `aus ${st.ratingCount} ${st.ratingCount === 1 ? 'Block' : 'Blöcken'}`, st.avgRating === null ? '' : st.avgRating >= 3.5 ? 'good' : st.avgRating < 3 ? 'warn' : '')}
+    </div>
+
+    ${ses.length ? `<section class="card">
+      <div class="card-head"><h2>Deine Blöcke</h2><span class="muted small">${fmtMin(st.totalMin)}</span></div>
+      <ul class="block-list">${ses.map(x => blockItem(x, { readOnly: true })).join('')}</ul>
+    </section>` : ''}
+
+    ${done.length ? `<section class="card">
+      <div class="card-head"><h2>Erledigt</h2></div>
+      <ul class="done-simple">${done.map(t => `<li><span class="done-dot" aria-hidden="true">${ICONS.check}</span>${esc(t.title)}</li>`).join('')}</ul>
+    </section>` : ''}
+
+    ${ev ? `<section class="card">
+      <div class="card-head"><h2>Abend-Check</h2></div>
+      <div class="day-summary">
+        <div><span>Energie</span><strong>${ev.energy ? `${ev.energy} von 5` : '–'}</strong></div>
+        <div><span>Bremsklotz</span><strong class="small-strong">${blockerLabel ? esc(blockerLabel) : '–'}</strong></div>
+      </div>
+      ${ev.note ? `<p class="day-note">„${esc(ev.note)}“</p>` : ''}
+    </section>` : ''}
+
+    ${sum(st.distractions.map(d => d.count)) ? `<section class="card">
+      <div class="card-head"><h2>Ablenkungen</h2></div>
+      ${chartRanking(st.distractions, '')}
+    </section>` : ''}`;
+}
+
+/* ---------- Gesamtansicht ---------- */
+
+function renderStats() {
+  renderRangeControls();
+  const range = getRange();
   const el = $('#stats-content');
 
+  if (range.single) { el.innerHTML = renderDayView(range); return; }
+
+  const st = computeStats(range);
+  const label = `<p class="range-label">${esc(rangeLabel(range))}</p>`;
+
   if (st.dataDays < MIN_DATA_DAYS) {
-    const longer = n < 30 && computeStats(30).dataDays >= MIN_DATA_DAYS;
-    el.innerHTML = `<section class="card hint-card">
+    el.innerHTML = `${label}<section class="card hint-card">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M12 20V5M19 20v-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
       <h2>Noch ein bisschen Geduld</h2>
-      <p>In den letzten ${n} Tagen hast du an ${st.dataDays} ${st.dataDays === 1 ? 'Tag' : 'Tagen'} Daten erfasst. Ab ${MIN_DATA_DAYS} Tagen zeige ich dir hier deine Muster und woran du konkret ansetzen kannst.</p>
-      <p>${longer ? 'Tipp: Wähle oben einen längeren Zeitraum.' : 'Plane morgens deine Prioritäten, arbeite in Fokus-Blöcken und mach abends den kurzen Check.'}</p>
+      <p>In diesem Zeitraum hast du an ${st.dataDays} ${st.dataDays === 1 ? 'Tag' : 'Tagen'} etwas erfasst. Ab ${MIN_DATA_DAYS} Tagen zeige ich dir hier deine Muster und woran du konkret ansetzen kannst.</p>
+      <p>Hak Aufgaben ab, arbeite in Fokus-Blöcken und mach abends den kurzen Check. Einzelne Tage kannst du schon jetzt über „Kalender“ ansehen.</p>
     </section>`;
     return;
   }
 
   const insights = buildInsights(st);
   const rest = insights.slice(1);
-  const planned = sum(st.days.map(d => d.plannedMin));
+  const weekly = st.days.length >= WEEKLY_FROM_DAYS;
 
   el.innerHTML = `
+    ${label}
     ${renderFocusCard(insights[0])}
     ${renderKpis(st)}
 
     <section class="card">
-      <div class="card-head"><h2>Fokuszeit pro Tag</h2></div>
-      <p class="card-sub">${fmtMin(st.totalMin)} Fokus${planned ? ` bei ${fmtMin(planned)} geplant` : ''}${st.prioShare !== null ? `, davon ${pct(st.prioShare)} % in Prioritäten` : ''}</p>
+      <div class="card-head"><h2>Fokuszeit pro ${weekly ? 'Woche' : 'Tag'}</h2></div>
+      <p class="card-sub">${fmtMin(st.totalMin)} Fokus${st.taskShare !== null ? `, davon ${pct(st.taskShare)} % für deine To-dos` : ''}</p>
       ${chartDaily(st)}
       <div class="legend">
-        <span><i style="background:var(--chart-prio)"></i>Prioritäten</span>
+        <span><i style="background:var(--chart-prio)"></i>To-dos</span>
         <span><i style="background:var(--chart-other)"></i>Andere Tätigkeiten</span>
-        <span><i class="line"></i>Geplant</span>
       </div>
-      <p class="chart-detail" data-default="Tippe auf einen Tag für Details.">Tippe auf einen Tag für Details.</p>
+      <p class="chart-detail">Tippe auf einen Balken für Details.</p>
     </section>
 
     <section class="card">
@@ -507,13 +738,13 @@ function renderStats() {
       <div class="legend">
         <span>Konzentration 1 <span class="ramp">${[1, 2, 3, 4, 5].map(n => `<i style="background:var(--conc-${n})"></i>`).join('')}</span> 5</span>
       </div>
-      <p class="chart-detail" data-default="Tippe auf eine Stunde für Details.">Tippe auf eine Stunde für Details.</p>
+      <p class="chart-detail">Tippe auf eine Stunde für Details.</p>
     </section>
 
     <section class="card">
       <div class="card-head"><h2>Wofür geht die übrige Zeit drauf?</h2></div>
-      <p class="card-sub">Fokuszeit außerhalb deiner Prioritäten</p>
-      ${chartRanking(st.categories, 'In diesem Zeitraum ging deine ganze Fokuszeit in Prioritäten. Stark!', fmtMin)}
+      <p class="card-sub">Fokuszeit außerhalb deiner To-do-Liste</p>
+      ${chartRanking(st.categories, 'In diesem Zeitraum ging deine ganze Fokuszeit in deine To-dos. Stark!', fmtMin)}
     </section>
 
     <section class="card">
@@ -548,13 +779,32 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#range-seg').addEventListener('click', e => {
     const btn = e.target.closest('button[data-range]');
     if (!btn) return;
-    state.meta.statsRange = Number(btn.dataset.range);
+    state.meta.statsMode = btn.dataset.range;
+    if (btn.dataset.range === 'cal') {
+      if (!state.meta.calFrom) { state.meta.calFrom = todayKey(); state.meta.calTo = todayKey(); }
+      calMonth = null;
+      calPending = false;
+    }
     saveState();
     renderStats();
   });
 
-  // Tippen auf Balken → Details unter dem Diagramm
+  $('#cal-box').addEventListener('click', onCalendarClick);
+
   $('#stats-content').addEventListener('click', e => {
+    // Einzeltag: Vortag / Folgetag
+    const dayBtn = e.target.closest('button[data-day]');
+    if (dayBtn && !dayBtn.disabled) {
+      state.meta.statsMode = 'cal';
+      state.meta.calFrom = dayBtn.dataset.day;
+      state.meta.calTo = dayBtn.dataset.day;
+      calPending = false;
+      calMonth = null;
+      saveState();
+      renderStats();
+      return;
+    }
+    // Tippen auf Balken → Details unter dem Diagramm
     const hit = e.target.closest('.hit');
     if (!hit) return;
     const card = hit.closest('.card');

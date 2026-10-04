@@ -4,7 +4,7 @@
    erhöhen (z. B. v2 → v3), damit das iPhone das Update lädt.
    ========================================================= */
 
-const CACHE_VERSION = 'fokus-v5';
+const CACHE_VERSION = 'fokus-v7';
 
 const ASSETS = [
   './',
@@ -12,7 +12,6 @@ const ASSETS = [
   './styles.css',
   './app.js',
   './stats.js',
-  './demo.js',
   './manifest.webmanifest',
   './icons/apple-touch-icon.png',
   './icons/icon-192.png',

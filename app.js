@@ -2,12 +2,11 @@
 
 /* =========================================================
    Fokus – Kernlogik
-   Tagesplan · Fokus-Timer · Abend-Check · Datensicherung
+   To-do-Liste, Fokus-Timer, Abend-Check, Datensicherung
    ========================================================= */
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.4.0';
 const STORAGE_KEY = 'fokus-app-v1';
-const MAX_PRIORITIES = 3;
 const LONG_RUN_MIN = 180;   // ab hier fragen wir, ob der Timer vergessen wurde
 
 const ESTIMATES = [
@@ -21,9 +20,15 @@ const ESTIMATES = [
   { min: 240, label: '4 h' },
 ];
 
+const PRIORITIES = [
+  { id: 'hoch', label: 'Hoch', rank: 0 },
+  { id: 'mittel', label: 'Mittel', rank: 1 },
+  { id: 'niedrig', label: 'Niedrig', rank: 2 },
+];
+
 const BLOCK_DURATIONS = [15, 25, 30, 45, 60, 75, 90, 120, 150, 180, 240];
 
-/* Tätigkeiten außerhalb der Tagesprioritäten */
+/* Tätigkeiten außerhalb der To-do-Liste */
 const CATEGORIES = [
   { id: 'mails', label: 'Mails & Nachrichten' },
   { id: 'meetings', label: 'Meetings & Calls' },
@@ -54,11 +59,33 @@ const BLOCKERS = [
   { id: 'nichts', label: 'Nichts – lief gut' },
 ];
 
-const NEW_PRIO_VALUE = '__new';
+/* Vorschläge passend zu Studium und TikTok-Shop-Affiliate */
+const SUGGESTIONS = [
+  { title: 'Vorlesung nacharbeiten und zusammenfassen', min: 60 },
+  { title: 'Hooks für 5 Videos schreiben', min: 30 },
+  { title: 'Karteikarten für die Prüfung erstellen', min: 45 },
+  { title: '3 Produktvideos drehen', min: 60 },
+  { title: 'Übungsblatt bearbeiten', min: 60 },
+  { title: '2 Videos schneiden und posten', min: 60 },
+  { title: 'Altklausur unter Prüfungsbedingungen lösen', min: 90 },
+  { title: '5 neue Produkte im Affiliate-Marktplatz auswählen', min: 30 },
+  { title: 'Hausarbeit: eine Seite schreiben', min: 60 },
+  { title: 'Samples bei 3 Shops anfragen', min: 30 },
+  { title: 'Literatur für die Hausarbeit recherchieren', min: 45 },
+  { title: '10 virale Produktvideos analysieren', min: 45 },
+  { title: 'Lernplan für die Prüfungsphase erstellen', min: 30 },
+  { title: 'Content-Plan für die Woche erstellen', min: 45 },
+  { title: 'Ein Kapitel im Skript durcharbeiten', min: 90 },
+  { title: 'Video-Statistiken der Woche auswerten', min: 30 },
+];
+const SUGGEST_COUNT = 4;
+
+const NEW_TASK_VALUE = '__new';
 
 const ICONS = {
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.6-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor"/></svg>',
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
 };
 
@@ -74,6 +101,7 @@ function ymd(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.
 function todayKey() { return ymd(new Date()); }
 function parseYmd(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
 function addDays(date, n) { const d = new Date(date); d.setDate(d.getDate() + n); return d; }
+function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
@@ -113,19 +141,38 @@ function estimateLabel(min) {
 
 function labelOf(list, id) { return (list.find(x => x.id === id) || {}).label || id; }
 function catLabel(id) { return labelOf(CATEGORIES, id || 'sonstiges'); }
+function prioOf(id) { return PRIORITIES.find(p => p.id === id) || PRIORITIES[1]; }
 
-/** Kategorie eines Blocks (null = Priorität) */
+/** Kategorie eines Blocks (null = Block für eine Aufgabe der To-do-Liste) */
 function sessionCategory(s) { return s.priorityId ? null : (s.category || 'sonstiges'); }
 
 /* ---------- Datenhaltung ---------- */
 
+/*
+  tasks:    To-do-Liste, unabhängig vom Tag (bleibt offen, bis erledigt)
+  sessions: Fokus-Blöcke; "priorityId" verweist auf eine Aufgabe (Name aus älteren Versionen)
+  days:     Abend-Check je Tag
+*/
 function defaultState() {
   return {
-    version: 1,
-    days: {},        // "JJJJ-MM-TT" -> { priorities: [], evening: null }
-    sessions: [],    // abgeschlossene Fokus-Blöcke
-    running: null,   // laufender Block (Startzeit wird gespeichert)
-    meta: { demoSeeded: false, lastBackup: null, statsRange: 7 },
+    version: 2,
+    tasks: [],
+    days: {},
+    sessions: [],
+    running: null,
+    meta: { lastBackup: null, statsMode: '7', calFrom: null, calTo: null, taskSort: 'prio' },
+  };
+}
+
+function cleanTask(t) {
+  return {
+    id: String(t.id),
+    title: String(t.title),
+    priority: PRIORITIES.some(p => p.id === t.priority) ? t.priority : 'mittel',
+    estimateMin: Number(t.estimateMin) > 0 ? Number(t.estimateMin) : null,
+    createdAt: Number(t.createdAt) || Date.now(),
+    done: !!t.done,
+    doneAt: t.done ? (Number(t.doneAt) || Number(t.createdAt) || Date.now()) : null,
   };
 }
 
@@ -134,28 +181,56 @@ function normalizeState(raw) {
   const s = defaultState();
   if (!raw || typeof raw !== 'object') return s;
 
-  if (raw.days && typeof raw.days === 'object' && !Array.isArray(raw.days)) {
-    for (const [key, day] of Object.entries(raw.days)) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !day || typeof day !== 'object') continue;
-      s.days[key] = {
-        ...day,
-        priorities: Array.isArray(day.priorities)
-          ? day.priorities.filter(p => p && p.id && typeof p.title === 'string')
-          : [],
-        evening: day.evening && typeof day.evening === 'object' ? day.evening : null,
-      };
+  // Beispieldaten früherer Versionen entfernen
+  const rawDays = raw.days && typeof raw.days === 'object' && !Array.isArray(raw.days) ? raw.days : {};
+  const rawSessions = Array.isArray(raw.sessions) ? raw.sessions.filter(x => x && !x.demo) : [];
+
+  s.sessions = rawSessions
+    .filter(x => typeof x.start === 'number' && typeof x.end === 'number' && x.end >= x.start)
+    .map(x => ({ ...x, date: x.date || ymd(new Date(x.start)), distractions: x.distractions || {} }));
+
+  if (Array.isArray(raw.tasks)) {
+    s.tasks = raw.tasks.filter(t => t && t.id && typeof t.title === 'string').map(cleanTask);
+  } else {
+    // Übernahme aus Version 1.x: Tagesprioritäten → To-do-Liste
+    const all = [];
+    for (const [key, day] of Object.entries(rawDays)) {
+      if (!day || day.demo || !Array.isArray(day.priorities)) continue;
+      for (const p of day.priorities) if (p && p.id && typeof p.title === 'string') all.push({ key, p });
+    }
+    // „Von gestern übernommene“ Aufgaben zusammenführen: Vorgänger fällt weg, Zeit wandert mit
+    const successor = {};
+    for (const { p } of all) if (p.fromId) successor[p.fromId] = p.id;
+    const finalId = id => { let cur = id; const seen = new Set(); while (successor[cur] && !seen.has(cur)) { seen.add(cur); cur = successor[cur]; } return cur; };
+    for (const x of s.sessions) if (x.priorityId && successor[x.priorityId]) x.priorityId = finalId(x.priorityId);
+    for (const { key, p } of all) {
+      if (successor[p.id]) continue;
+      const created = parseYmd(key).getTime() + 8 * 3600000;
+      s.tasks.push(cleanTask({
+        id: p.id, title: p.title, priority: 'mittel', estimateMin: p.estimateMin,
+        createdAt: created, done: p.done, doneAt: p.doneAt || (p.done ? created + 10 * 3600000 : null),
+      }));
     }
   }
-  if (Array.isArray(raw.sessions)) {
-    s.sessions = raw.sessions.filter(x => x && typeof x.start === 'number' && typeof x.end === 'number' && x.end >= x.start)
-      .map(x => ({ ...x, date: x.date || ymd(new Date(x.start)), distractions: x.distractions || {} }));
+
+  for (const [key, day] of Object.entries(rawDays)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !day || typeof day !== 'object' || day.demo) continue;
+    if (day.evening && typeof day.evening === 'object') s.days[key] = { evening: day.evening };
   }
+
   if (raw.running && typeof raw.running.start === 'number') {
     s.running = { distractions: {}, stopAt: null, category: null, ...raw.running };
     if (!s.running.date) s.running.date = ymd(new Date(s.running.start));
     if (!s.running.priorityId && !s.running.category) s.running.category = 'sonstiges';
   }
-  if (raw.meta && typeof raw.meta === 'object') Object.assign(s.meta, raw.meta);
+  if (raw.meta && typeof raw.meta === 'object') {
+    const m = raw.meta;
+    if (m.lastBackup) s.meta.lastBackup = m.lastBackup;
+    if (['7', '30', '90', 'cal'].includes(String(m.statsMode))) s.meta.statsMode = String(m.statsMode);
+    if (m.calFrom) s.meta.calFrom = m.calFrom;
+    if (m.calTo) s.meta.calTo = m.calTo;
+    if (m.taskSort === 'added') s.meta.taskSort = 'added';
+  }
   return s;
 }
 
@@ -182,28 +257,29 @@ function saveState() {
 
 function getDay(key, create = false) {
   let day = state.days[key];
-  if (!day && create) day = state.days[key] = { priorities: [], evening: null };
+  if (!day && create) day = state.days[key] = { evening: null };
   return day || null;
 }
 
-function todayPriorities() { return (getDay(todayKey()) || {}).priorities || []; }
 function todaySessions() { const k = todayKey(); return state.sessions.filter(s => s.date === k); }
+function findTask(id) { return id ? state.tasks.find(t => t.id === id) || null : null; }
+function isDoneOn(t, key) { return t.done && t.doneAt && ymd(new Date(t.doneAt)) === key; }
 
-function findPriority(id) {
-  if (!id) return null;
-  for (const day of Object.values(state.days)) {
-    const p = day.priorities.find(x => x.id === id);
-    if (p) return p;
-  }
-  return null;
+function sortTasks(list) {
+  const byPrio = state.meta.taskSort !== 'added';
+  return [...list].sort((a, b) =>
+    (byPrio ? prioOf(a.priority).rank - prioOf(b.priority).rank : 0) || a.createdAt - b.createdAt);
 }
 
-/** Investierte Minuten einer Priorität (inkl. laufendem Block) */
-function investedMin(prioId) {
+function openTasks() { return sortTasks(state.tasks.filter(t => !t.done)); }
+function doneToday() { const k = todayKey(); return state.tasks.filter(t => isDoneOn(t, k)).sort((a, b) => a.doneAt - b.doneAt); }
+
+/** Investierte Minuten einer Aufgabe (inkl. laufendem Block) */
+function investedMin(taskId) {
   let m = 0;
-  for (const s of state.sessions) if (s.priorityId === prioId) m += sessionMin(s);
+  for (const s of state.sessions) if (s.priorityId === taskId) m += sessionMin(s);
   const r = state.running;
-  if (r && r.priorityId === prioId) m += ((r.stopAt || Date.now()) - r.start) / 60000;
+  if (r && r.priorityId === taskId) m += ((r.stopAt || Date.now()) - r.start) / 60000;
   return m;
 }
 
@@ -237,7 +313,7 @@ function closeSheet(sel) {
   if (!$$('.sheet-backdrop').some(s => !s.hidden)) document.body.classList.remove('sheet-open');
 }
 
-/* ---------- Bewertungs-Buttons (1–5) ---------- */
+/* ---------- Kleine Auswahl-Bausteine ---------- */
 
 function renderRating(container, value, onPick) {
   container.innerHTML = [1, 2, 3, 4, 5].map(n =>
@@ -249,6 +325,16 @@ function renderRating(container, value, onPick) {
   };
 }
 
+function renderPrioPicker(container, value, onPick) {
+  container.innerHTML = PRIORITIES.map(p =>
+    `<button type="button" class="prio-opt p-${p.id}" data-prio="${p.id}" aria-pressed="${p.id === value}">${p.label}</button>`
+  ).join('');
+  container.onclick = e => {
+    const btn = e.target.closest('button[data-prio]');
+    if (btn) onPick(btn.dataset.prio);
+  };
+}
+
 /* ---------- Auswahl „Woran arbeitest du?“ ---------- */
 
 let recentTargets = [];
@@ -257,7 +343,7 @@ let recentTargets = [];
 function recentCustomTargets() {
   const seen = new Set();
   const out = [];
-  const sorted = state.sessions.filter(s => !s.priorityId && !s.demo).sort((a, b) => b.start - a.start);
+  const sorted = state.sessions.filter(s => !s.priorityId).sort((a, b) => b.start - a.start);
   for (const s of sorted) {
     const cat = sessionCategory(s);
     if (!s.label || s.label === catLabel(cat)) continue;
@@ -271,12 +357,12 @@ function recentCustomTargets() {
 }
 
 function buildTargetOptions(includeNew) {
-  const open = todayPriorities().filter(p => !p.done);
+  const open = openTasks();
   recentTargets = recentCustomTargets();
   let html = '';
   if (open.length) {
-    html += `<optgroup label="Prioritäten von heute">${open.map(p =>
-      `<option value="p:${p.id}">${esc(p.title)}</option>`).join('')}</optgroup>`;
+    html += `<optgroup label="Deine To-dos">${open.map(t =>
+      `<option value="p:${t.id}">${esc(t.title)}</option>`).join('')}</optgroup>`;
   }
   if (recentTargets.length) {
     html += `<optgroup label="Zuletzt genutzt">${recentTargets.map((t, i) =>
@@ -284,9 +370,7 @@ function buildTargetOptions(includeNew) {
   }
   html += `<optgroup label="Andere Tätigkeit">${CATEGORIES.map(c =>
     `<option value="c:${c.id}">${esc(c.label)}</option>`).join('')}</optgroup>`;
-  if (includeNew && todayPriorities().length < MAX_PRIORITIES) {
-    html += `<option value="${NEW_PRIO_VALUE}">+ Neue Priorität anlegen …</option>`;
-  }
+  if (includeNew) html += `<option value="${NEW_TASK_VALUE}">+ Neue Aufgabe anlegen …</option>`;
   return html;
 }
 
@@ -310,179 +394,243 @@ function selectHasValue(sel, v) { return $$('option', sel).some(o => o.value ===
 function renderToday() {
   $('#today-date').textContent = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
   renderTimer();
-  renderPlan();
-  renderBlocks();
+  renderTasks();
   renderEvening();
 }
 
-/* ---------- Tagesplan ---------- */
+/* ---------- To-do-Liste ---------- */
 
-function renderPlan() {
-  const prios = todayPriorities();
-  const list = $('#prio-list');
+let suggestOffset = 0;
+let suggestOpen = false;
+let newPrio = 'mittel';
+let newEst = null;
 
-  if (!prios.length) {
-    list.innerHTML = '<li class="empty">Was sind heute deine wichtigsten Dinge? Trag bis zu drei Prioritäten ein.</li>';
-  } else {
-    list.innerHTML = prios.map(p => {
-      const inv = investedMin(p.id);
-      const over = inv > p.estimateMin;
-      const pct = Math.min(100, (inv / p.estimateMin) * 100);
-      const meta = inv < 1
-        ? `Geschätzt ${estimateLabel(p.estimateMin)}`
-        : `<span class="${over ? 'over' : ''}">${fmtMin(inv)}</span> von ${estimateLabel(p.estimateMin)}`;
-      return `
-        <li class="prio ${p.done ? 'done' : ''}" data-id="${p.id}">
-          <button type="button" class="check" data-action="toggle" aria-pressed="${!!p.done}"
-            aria-label="${p.done ? 'Als offen markieren' : 'Als erledigt markieren'}"><span>${ICONS.check}</span></button>
-          <button type="button" class="prio-body" data-action="edit" aria-label="${esc(p.title)} bearbeiten">
-            <span class="prio-title">${esc(p.title)}</span>
-            <span class="prio-meta">${meta}</span>
-            <span class="progress" aria-hidden="true"><span class="${over ? 'over' : ''}" style="width:${pct}%"></span></span>
-          </button>
-          <button type="button" class="icon-btn" data-action="delete" aria-label="Priorität löschen">${ICONS.trash}</button>
-        </li>`;
-    }).join('');
-  }
+function blockCountLabel(n) { return `${n} ${n === 1 ? 'Block' : 'Blöcken'}`; }
 
-  const done = prios.filter(p => p.done).length;
-  const planned = prios.reduce((a, p) => a + p.estimateMin, 0);
-  $('#plan-count').textContent = prios.length ? `${done} von ${prios.length} erledigt, ${fmtMin(planned)} geplant` : '';
-  $('#prio-form').hidden = prios.length >= MAX_PRIORITIES;
-  renderCarry();
-  $('#prio-form').classList.toggle('is-first', !prios.length && $('#carry-box').hidden);
+function taskItem(t) {
+  const r = state.running;
+  const inv = investedMin(t.id);
+  const blocks = state.sessions.filter(x => x.priorityId === t.id).length;
+  const isRunning = !!r && r.priorityId === t.id;
+  const est = t.estimateMin || 0;
+  const over = est > 0 && inv > est;
+  const pr = prioOf(t.priority);
+
+  let meta;
+  if (isRunning) meta = `<span class="live">Läuft gerade</span>, ${fmtMin(inv)} investiert`;
+  else if (inv >= 1) meta = `<span class="${over ? 'over' : ''}">${fmtMin(inv)}</span>${est ? ` von ${estimateLabel(est)}` : ''} in ${blockCountLabel(blocks)}`;
+  else meta = est ? `Geschätzt ${estimateLabel(est)}` : 'Noch nicht begonnen';
+
+  const bar = est && !t.done
+    ? `<span class="progress" aria-hidden="true"><span class="${over ? 'over' : ''}" style="width:${Math.min(100, (inv / est) * 100)}%"></span></span>`
+    : '';
+  const action = t.done ? ''
+    : isRunning ? '<span class="play-btn is-live" aria-hidden="true"><span class="pulse"></span></span>'
+    : `<button type="button" class="play-btn" data-action="start" aria-label="Fokus für „${esc(t.title)}“ starten">${ICONS.play}</button>`;
+
+  return `
+    <li class="prio ${t.done ? 'done' : ''} ${isRunning ? 'is-running' : ''}" data-id="${t.id}">
+      <button type="button" class="check" data-action="toggle" aria-pressed="${t.done}"
+        aria-label="${t.done ? 'Als offen markieren' : 'Als erledigt markieren'}"><span>${ICONS.check}</span></button>
+      <button type="button" class="prio-body" data-action="edit" aria-label="${esc(t.title)} bearbeiten">
+        <span class="prio-title">${esc(t.title)}</span>
+        <span class="prio-meta">${t.done ? '' : `<span class="prio-pill p-${pr.id}">${pr.label}</span>`}${meta}</span>
+        ${bar}
+      </button>
+      ${action}
+    </li>`;
 }
 
-function addPriority(e) {
+function renderTasks() {
+  const open = openTasks();
+  const done = doneToday();
+  const list = $('#prio-list');
+
+  if (!open.length && !done.length) {
+    list.innerHTML = '<li class="empty">Deine Liste ist leer. Was willst du schaffen? Kurz und konkret, zum Beispiel „3 Produktvideos drehen“.</li>';
+  } else if (!open.length) {
+    list.innerHTML = '<li class="empty">Alles erledigt. Stark!</li>';
+  } else {
+    list.innerHTML = open.map(taskItem).join('');
+  }
+
+  $('#done-box').hidden = !done.length;
+  $('#done-count').textContent = done.length;
+  $('#done-list').innerHTML = done.map(taskItem).join('');
+
+  $('#plan-count').textContent = open.length ? `${open.length} offen` : '';
+  $('#btn-sort').textContent = state.meta.taskSort === 'added' ? 'Nach Datum' : 'Nach Priorität';
+  $('#btn-sort').hidden = open.length < 2;
+  $('#prio-form').classList.toggle('is-first', !open.length && !done.length);
+
+  renderAddOptions();
+  renderSuggestions();
+  renderOthers();
+}
+
+function renderAddOptions() {
+  const hasText = !!$('#prio-title').value.trim();
+  $('#add-options').hidden = !hasText;
+  renderPrioPicker($('#new-prio'), newPrio, v => { newPrio = v; renderAddOptions(); });
+  $('#prio-est-chips').innerHTML = ESTIMATES.map(e =>
+    `<button type="button" class="chip chip-sm" data-min="${e.min}" aria-pressed="${newEst === e.min}">${e.label}</button>`
+  ).join('');
+}
+
+function renderSuggestions() {
+  const taken = new Set(state.tasks.filter(t => !t.done).map(t => t.title.toLowerCase()));
+  const pool = SUGGESTIONS.filter(x => !taken.has(x.title.toLowerCase()));
+  const typing = !!$('#prio-title').value.trim();
+  const auto = openTasks().length < 3;
+  const visible = !typing && pool.length > 0 && (auto || suggestOpen);
+
+  $('#btn-suggest-toggle').hidden = typing || auto || !pool.length;
+  $('#btn-suggest-toggle').textContent = suggestOpen ? 'Vorschläge ausblenden' : 'Vorschläge anzeigen';
+  $('#suggest-box').hidden = !visible;
+  if (!visible) return;
+
+  const start = suggestOffset % pool.length;
+  const picks = [];
+  for (let i = 0; i < Math.min(SUGGEST_COUNT, pool.length); i++) picks.push(pool[(start + i) % pool.length]);
+  $('#suggest-chips').innerHTML = picks.map(x =>
+    `<button type="button" class="chip suggest-chip" data-title="${esc(x.title)}" data-min="${x.min}">${ICONS.plus}<span>${esc(x.title)}</span></button>`
+  ).join('');
+}
+
+function pushTask(title, priority, estimateMin) {
+  const t = cleanTask({ id: uid(), title, priority, estimateMin, createdAt: Date.now(), done: false });
+  state.tasks.push(t);
+  saveState();
+  return t;
+}
+
+function addTask(e) {
   e.preventDefault();
   const input = $('#prio-title');
   const title = input.value.trim();
   if (!title) { input.focus(); return; }
-  const day = getDay(todayKey(), true);
-  if (day.priorities.length >= MAX_PRIORITIES) return;
-  day.priorities.push({ id: uid(), title, estimateMin: Number($('#prio-est').value), done: false, doneAt: null });
-  saveState();
+  pushTask(title, newPrio, newEst);
   input.value = '';
+  newPrio = 'mittel';
+  newEst = null;
   input.blur();
-  renderPlan();
+  renderTasks();
   renderTimer();
+  renderEvening();
 }
 
-function onPlanClick(e) {
+function onSuggestClick(e) {
+  const chip = e.target.closest('.suggest-chip');
+  if (!chip) return;
+  pushTask(chip.dataset.title, 'mittel', Number(chip.dataset.min));
+  renderTasks();
+  renderTimer();
+  renderEvening();
+  toast('Hinzugefügt. Tipp auf die Aufgabe, um sie anzupassen.');
+}
+
+function onTaskClick(e) {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
-  const id = btn.closest('.prio').dataset.id;
-  const day = getDay(todayKey());
-  const p = day && day.priorities.find(x => x.id === id);
-  if (!p) return;
+  const t = findTask(btn.closest('.prio').dataset.id);
+  if (!t) return;
 
   if (btn.dataset.action === 'toggle') {
-    p.done = !p.done;
-    p.doneAt = p.done ? Date.now() : null;
+    t.done = !t.done;
+    t.doneAt = t.done ? Date.now() : null;
     saveState();
-    renderPlan();
+    renderTasks();
     renderTimer();
     renderEvening();
-    if (p.done) toast('Erledigt. Stark!');
+    if (t.done) toast('Erledigt. Stark!', { label: 'Rückgängig', fn: () => { t.done = false; t.doneAt = null; saveState(); renderToday(); } });
   } else if (btn.dataset.action === 'edit') {
-    openEditSheet(p);
-  } else if (btn.dataset.action === 'delete') {
-    if (state.running && state.running.priorityId === id) {
-      toast('Diese Priorität läuft gerade im Timer.');
-      return;
-    }
-    if (!confirm(`„${p.title}“ löschen?`)) return;
-    day.priorities = day.priorities.filter(x => x.id !== id);
-    saveState();
-    renderPlan();
-    renderTimer();
-    renderEvening();
+    openEditSheet(t);
+  } else if (btn.dataset.action === 'start') {
+    beginFocus({ priorityId: t.id, category: null, label: '' });
   }
 }
 
-/* ---------- Priorität bearbeiten ---------- */
+/* ---------- Andere Tätigkeiten (Blöcke ohne Aufgabe) ---------- */
+
+function renderOthers() {
+  const box = $('#others-box');
+  const list = todaySessions().filter(x => !x.priorityId).sort((a, b) => a.start - b.start);
+  box.hidden = !list.length;
+  if (!list.length) { box.innerHTML = ''; return; }
+  const wasOpen = !!box.querySelector('details[open]');
+  const total = list.reduce((a, x) => a + sessionMin(x), 0);
+  const cats = [...new Set(list.map(x => catLabel(sessionCategory(x))))];
+  box.innerHTML = `
+    <details ${wasOpen ? 'open' : ''}>
+      <summary>
+        <span class="others-text">
+          <span class="others-title">Heute außerdem</span>
+          <span class="others-cats">${esc(cats.join(', '))}</span>
+        </span>
+        <strong>${fmtMin(total)}</strong>
+      </summary>
+      <ul class="block-list">${list.map(x => blockItem(x)).join('')}</ul>
+    </details>`;
+}
+
+/* ---------- Aufgabe bearbeiten ---------- */
 
 let editId = null;
+let editPrio = 'mittel';
 
-function openEditSheet(p) {
-  editId = p.id;
-  $('#edit-title').value = p.title;
-  $('#edit-est').innerHTML = ESTIMATES.map(e =>
-    `<option value="${e.min}" ${e.min === p.estimateMin ? 'selected' : ''}>${e.label}</option>`).join('');
-  if (!ESTIMATES.some(e => e.min === p.estimateMin)) {
-    $('#edit-est').insertAdjacentHTML('afterbegin', `<option value="${p.estimateMin}" selected>${fmtMin(p.estimateMin)}</option>`);
+function openEditSheet(t) {
+  editId = t.id;
+  editPrio = t.priority;
+  $('#edit-title').value = t.title;
+  updateEditPrio();
+  let opts = '<option value="">Keine Schätzung</option>' +
+    ESTIMATES.map(e => `<option value="${e.min}">${e.label}</option>`).join('');
+  if (t.estimateMin && !ESTIMATES.some(e => e.min === t.estimateMin)) {
+    opts += `<option value="${t.estimateMin}">${fmtMin(t.estimateMin)}</option>`;
   }
+  $('#edit-est').innerHTML = opts;
+  $('#edit-est').value = t.estimateMin ? String(t.estimateMin) : '';
+  renderEditBlocks();
   openSheet('#edit-sheet');
 }
 
+function updateEditPrio() {
+  renderPrioPicker($('#edit-prio'), editPrio, v => { editPrio = v; updateEditPrio(); });
+}
+
+function renderEditBlocks() {
+  const list = state.sessions.filter(x => x.priorityId === editId).sort((a, b) => a.start - b.start);
+  $('#edit-blocks-wrap').hidden = !list.length;
+  $('#edit-blocks').innerHTML = list.map(x => blockItem(x, { compact: true, withDate: true })).join('');
+}
+
 function saveEdit() {
-  const p = findPriority(editId);
+  const t = findTask(editId);
   const title = $('#edit-title').value.trim();
-  if (!p) { closeSheet('#edit-sheet'); return; }
+  if (!t) { closeSheet('#edit-sheet'); return; }
   if (!title) { $('#edit-title').focus(); return; }
-  p.title = title;
-  p.estimateMin = Number($('#edit-est').value);
+  t.title = title;
+  t.priority = editPrio;
+  t.estimateMin = $('#edit-est').value ? Number($('#edit-est').value) : null;
   saveState();
   closeSheet('#edit-sheet');
   renderToday();
   toast('Gespeichert');
 }
 
-/* ---------- Offene Prioritäten von gestern ---------- */
-
-/** Letzter Tag (bis 7 Tage zurück) mit Prioritäten → dessen offene Punkte */
-function carryCandidates() {
-  const today = getDay(todayKey());
-  if (today && today.carryDismissed) return null;
-  if (todayPriorities().length >= MAX_PRIORITIES) return null;
-  const carried = new Set(todayPriorities().map(p => p.fromId).filter(Boolean));
-  for (let i = 1; i <= 7; i++) {
-    const key = ymd(addDays(new Date(), -i));
-    const d = state.days[key];
-    if (!d || !d.priorities.length) continue;
-    const open = d.priorities.filter(p => !p.done && !carried.has(p.id));
-    return open.length ? { key, open, daysAgo: i } : null;
+function deleteEditTask() {
+  const t = findTask(editId);
+  if (!t) { closeSheet('#edit-sheet'); return; }
+  if (state.running && state.running.priorityId === t.id) {
+    toast('Diese Aufgabe läuft gerade im Timer.');
+    return;
   }
-  return null;
-}
-
-function renderCarry() {
-  const box = $('#carry-box');
-  const c = carryCandidates();
-  box.hidden = !c;
-  if (!c) return;
-  const when = c.daysAgo === 1 ? 'Offen von gestern'
-    : `Offen vom ${parseYmd(c.key).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'numeric' })}`;
-  box.innerHTML = `
-    <div class="carry-head">
-      <span>${when}</span>
-      <button type="button" class="link-btn" data-action="dismiss">Ausblenden</button>
-    </div>
-    <ul>${c.open.map(p => `
-      <li>
-        <span class="carry-title">${esc(p.title)} <span class="muted">(${estimateLabel(p.estimateMin)})</span></span>
-        <button type="button" class="btn btn-small" data-action="carry" data-id="${p.id}">${ICONS.plus}Übernehmen</button>
-      </li>`).join('')}
-    </ul>`;
-}
-
-function onCarryClick(e) {
-  const btn = e.target.closest('button[data-action]');
-  if (!btn) return;
-  const day = getDay(todayKey(), true);
-  if (btn.dataset.action === 'dismiss') {
-    day.carryDismissed = true;
-  } else {
-    if (day.priorities.length >= MAX_PRIORITIES) return;
-    const src = findPriority(btn.dataset.id);
-    if (!src) return;
-    day.priorities.push({ id: uid(), title: src.title, estimateMin: src.estimateMin, done: false, doneAt: null, fromId: src.id });
-    toast('Übernommen');
-  }
+  if (!confirm(`„${t.title}“ löschen? Die erfasste Zeit bleibt in der Auswertung erhalten.`)) return;
+  state.tasks = state.tasks.filter(x => x.id !== t.id);
   saveState();
-  renderPlan();
-  renderTimer();
-  renderEvening();
+  closeSheet('#edit-sheet');
+  renderToday();
+  toast('Aufgabe gelöscht');
 }
 
 /* ---------- Fokus-Timer ---------- */
@@ -494,8 +642,8 @@ let targetIsManual = false;   // Auswahl bewusst getroffen?
 /** Titel und Unterzeile des laufenden Blocks */
 function runTitle(r) {
   if (r.priorityId) {
-    const p = findPriority(r.priorityId);
-    return { title: p ? p.title : 'Priorität', sub: 'Priorität' };
+    const t = findTask(r.priorityId);
+    return { title: t ? t.title : 'Aufgabe', sub: t ? `Priorität ${prioOf(t.priority).label.toLowerCase()}` : '' };
   }
   const cat = catLabel(r.category);
   return r.otherLabel ? { title: r.otherLabel, sub: cat } : { title: cat, sub: '' };
@@ -510,9 +658,9 @@ function renderTargetSelect() {
   const sel = $('#focus-target');
   const prev = sel.value;
   sel.innerHTML = buildTargetOptions(true);
-  const open = todayPriorities().filter(p => !p.done);
-  // Bewusste Auswahl behalten, sonst die erste offene Priorität vorschlagen
-  if (prev && prev !== NEW_PRIO_VALUE && (targetIsManual || prev.startsWith('p:')) && selectHasValue(sel, prev)) sel.value = prev;
+  const open = openTasks();
+  // Bewusste Auswahl behalten, sonst die wichtigste offene Aufgabe vorschlagen
+  if (prev && prev !== NEW_TASK_VALUE && (targetIsManual || prev.startsWith('p:')) && selectHasValue(sel, prev)) sel.value = prev;
   else sel.value = open.length ? `p:${open[0].id}` : 'c:sonstiges';
   updateOtherInput();
 }
@@ -523,9 +671,8 @@ function updateOtherInput() {
 
 function onTargetChange() {
   const sel = $('#focus-target');
-  if (sel.value === NEW_PRIO_VALUE) {
-    // Zur Eingabe im Tagesplan springen
-    const open = todayPriorities().filter(p => !p.done);
+  if (sel.value === NEW_TASK_VALUE) {
+    const open = openTasks();
     sel.value = open.length ? `p:${open[0].id}` : 'c:sonstiges';
     updateOtherInput();
     const input = $('#prio-title');
@@ -568,27 +715,28 @@ function setDial(frac, over, sub) {
   $('#dial-sub').textContent = sub || '';
 }
 
-/** Ohne Timer: heutige Fokuszeit im Verhältnis zur geplanten Zeit */
+/** Ohne Timer: Wie viel der Liste ist heute geschafft? */
 function updateIdleDial() {
   const focus = todaySessions().reduce((a, s) => a + sessionMin(s), 0);
-  const planned = todayPriorities().reduce((a, p) => a + p.estimateMin, 0);
+  const done = doneToday().length;
+  const total = done + openTasks().length;
   let sub;
-  if (planned) sub = `${fmtMin(focus)} von ${fmtMin(planned)} geplant`;
-  else if (focus) sub = `Heute ${fmtMin(focus)} Fokus`;
+  if (total) sub = `${done} von ${total} erledigt` + (focus >= 1 ? `, ${fmtMin(focus)} Fokus` : '');
+  else if (focus >= 1) sub = `Heute ${fmtMin(focus)} Fokus`;
   else sub = 'Bereit für deinen ersten Block';
-  setDial(planned ? focus / planned : 0, false, sub);
+  setDial(total ? done / total : 0, false, sub);
 }
 
-/** Mit Timer: Priorität → Anteil der Schätzung, sonst eine Runde pro Stunde */
+/** Mit Timer: Aufgabe mit Schätzung → Anteil der Schätzung, sonst eine Runde pro Stunde */
 function updateRunningDial(r) {
   const elapsed = ((r.stopAt || Date.now()) - r.start) / 60000;
-  const p = findPriority(r.priorityId);
-  if (p && p.estimateMin) {
-    const inv = investedMin(p.id);
-    const over = inv > p.estimateMin;
-    setDial(inv / p.estimateMin, over, over
-      ? `${fmtMin(inv - p.estimateMin)} über der Schätzung`
-      : `${fmtMin(inv)} von ${estimateLabel(p.estimateMin)}`);
+  const t = findTask(r.priorityId);
+  if (t && t.estimateMin) {
+    const inv = investedMin(t.id);
+    const over = inv > t.estimateMin;
+    setDial(inv / t.estimateMin, over, over
+      ? `${fmtMin(inv - t.estimateMin)} über der Schätzung`
+      : `${fmtMin(inv)} von ${estimateLabel(t.estimateMin)}`);
   } else {
     setDial((elapsed % 60) / 60, false, 'Ein Kreis = 1 Stunde');
   }
@@ -650,7 +798,7 @@ function startTicking() {
   tickHandle = setInterval(() => {
     if (!state.running) { stopTicking(); return; }
     tick();
-    if (++tickCount % 30 === 0) renderPlan();   // investierte Zeit live nachziehen
+    if (++tickCount % 30 === 0) renderTasks();   // investierte Zeit live nachziehen
   }, 1000);
 }
 
@@ -660,8 +808,11 @@ function stopTicking() {
 }
 
 function startFocus() {
-  if (state.running) return;
-  const t = parseTarget($('#focus-target').value, $('#focus-other').value);
+  beginFocus(parseTarget($('#focus-target').value, $('#focus-other').value));
+}
+
+function beginFocus(t) {
+  if (state.running) { toast('Es läuft schon ein Block. Beende ihn zuerst.'); return; }
   state.running = {
     start: Date.now(),
     date: todayKey(),
@@ -675,7 +826,7 @@ function startFocus() {
   targetIsManual = false;
   $('#focus-other').value = '';
   renderTimer();
-  renderPlan();
+  renderTasks();
   startTicking();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -728,8 +879,8 @@ function openFinishSheet() {
   $('#finish-long-hint').hidden = !long;
   $('#finish-minutes').value = long ? '' : Math.max(1, Math.round(mins));
 
-  const p = findPriority(r.priorityId);
-  $('#finish-done-row').hidden = !p || p.done;
+  const t = findTask(r.priorityId);
+  $('#finish-done-row').hidden = !t || t.done;
   $('#finish-done').checked = false;
 
   updateFinishRating();
@@ -744,7 +895,7 @@ function updateFinishRating() {
 function saveFinish() {
   const r = state.running;
   if (!r || !finishRating) return;
-  const p = findPriority(r.priorityId);
+  const t = findTask(r.priorityId);
   let start = r.start;
   let end = r.stopAt || Date.now();
 
@@ -766,14 +917,14 @@ function saveFinish() {
     date: r.date || ymd(new Date(r.start)),
     start,
     end,
-    priorityId: p ? p.id : null,
-    category: p ? null : (r.category || 'sonstiges'),
-    label: p ? p.title : (r.otherLabel || catLabel(r.category)),
+    priorityId: t ? t.id : null,
+    category: t ? null : (r.category || 'sonstiges'),
+    label: t ? t.title : (r.otherLabel || catLabel(r.category)),
     distractions: { ...r.distractions },
     rating: finishRating,
   };
   state.sessions.push(session);
-  if (p && $('#finish-done').checked) { p.done = true; p.doneAt = Date.now(); }
+  if (t && $('#finish-done').checked) { t.done = true; t.doneAt = Date.now(); }
   state.running = null;
   saveState();
   stopTicking();
@@ -809,7 +960,7 @@ function openAddSheet() {
   addRating = 0;
   const sel = $('#add-target');
   sel.innerHTML = buildTargetOptions(false);
-  const open = todayPriorities().filter(p => !p.done);
+  const open = openTasks();
   sel.value = open.length ? `p:${open[0].id}` : 'c:sonstiges';
   $('#add-other').value = '';
 
@@ -827,8 +978,8 @@ function openAddSheet() {
 function updateAddForm() {
   const val = $('#add-target').value;
   $('#add-other').hidden = !val.startsWith('c:');
-  const p = val.startsWith('p:') ? findPriority(val.slice(2)) : null;
-  $('#add-done-row').hidden = !p || p.done;
+  const t = val.startsWith('p:') ? findTask(val.slice(2)) : null;
+  $('#add-done-row').hidden = !t || t.done;
   if ($('#add-done-row').hidden) $('#add-done').checked = false;
   renderRating($('#add-rating'), addRating, v => { addRating = v; updateAddForm(); });
   $('#add-save').disabled = !addRating;
@@ -843,78 +994,75 @@ function saveAdd() {
   const end = start + Number($('#add-dur').value) * 60000;
   if (end > Date.now() + 60000) { toast('Der Block würde in der Zukunft enden.'); return; }
 
-  const t = parseTarget($('#add-target').value, $('#add-other').value);
-  const p = findPriority(t.priorityId);
+  const tg = parseTarget($('#add-target').value, $('#add-other').value);
+  const t = findTask(tg.priorityId);
   state.sessions.push({
     id: uid(),
     date: todayKey(),
     start,
     end,
-    priorityId: p ? p.id : null,
-    category: p ? null : t.category,
-    label: p ? p.title : (t.label || catLabel(t.category)),
+    priorityId: t ? t.id : null,
+    category: t ? null : tg.category,
+    label: t ? t.title : (tg.label || catLabel(tg.category)),
     distractions: {},
     rating: addRating,
     manual: true,
   });
-  if (p && $('#add-done').checked) { p.done = true; p.doneAt = Date.now(); }
+  if (t && $('#add-done').checked) { t.done = true; t.doneAt = Date.now(); }
   saveState();
   closeSheet('#add-sheet');
   renderToday();
   toast('Block nachgetragen');
 }
 
-/* ---------- Heutige Blöcke ---------- */
+/* ---------- Blöcke ---------- */
 
 function ratingDots(v) {
   return `<span class="dots" aria-label="Konzentration ${v} von 5">${[1, 2, 3, 4, 5].map(n => `<i class="${n <= v ? 'on' : ''}"></i>`).join('')}</span>`;
 }
 
-function renderBlocks() {
-  const list = todaySessions().sort((a, b) => a.start - b.start);
-  const total = list.reduce((a, s) => a + sessionMin(s), 0);
-  $('#blocks-total').textContent = list.length ? `${fmtMin(total)} Fokus` : '';
-
-  if (!list.length) {
-    $('#block-list').innerHTML = '<li class="empty">Noch keine Fokus-Blöcke heute. Starte oben deinen ersten.</li>';
-    return;
-  }
-
-  $('#block-list').innerHTML = list.map(s => {
-    const p = findPriority(s.priorityId);
-    const title = p ? p.title : s.label;
-    const cat = sessionCategory(s);
-    const tag = s.priorityId ? '<span class="tag tag-prio">Priorität</span>'
-      : title !== catLabel(cat) ? `<span class="tag">${esc(catLabel(cat))}</span>` : '';
-    const nDistr = Object.values(s.distractions || {}).reduce((a, b) => a + b, 0);
-    return `
-      <li class="block" data-id="${s.id}">
-        <div class="block-time">${fmtClock(s.start)}<span>${fmtClock(s.end)}</span></div>
-        <div class="block-body">
-          <div class="block-title">${esc(title)}</div>
-          <div class="block-meta">
-            <span>${fmtMin(sessionMin(s))}</span>
-            ${s.rating ? ratingDots(s.rating) : ''}
-            ${nDistr ? `<span>${nDistr} ${nDistr === 1 ? 'Ablenkung' : 'Ablenkungen'}</span>` : ''}
-            ${tag}
-            ${s.manual ? '<span class="tag">nachgetragen</span>' : ''}
-          </div>
+/**
+ * Eine Blockzeile.
+ * opts.compact: ohne Titel · opts.withDate: Datum statt Endzeit · opts.readOnly: ohne Löschen
+ */
+function blockItem(x, opts = {}) {
+  const t = findTask(x.priorityId);
+  const title = t ? t.title : x.label;
+  const cat = sessionCategory(x);
+  const tag = !x.priorityId && title !== catLabel(cat) ? `<span class="tag">${esc(catLabel(cat))}</span>` : '';
+  const nDistr = Object.values(x.distractions || {}).reduce((a, b) => a + b, 0);
+  const sub = opts.withDate
+    ? new Date(x.start).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' })
+    : fmtClock(x.end);
+  return `
+    <li class="block" data-id="${x.id}">
+      <div class="block-time">${fmtClock(x.start)}<span>${sub}</span></div>
+      <div class="block-body">
+        ${opts.compact ? '' : `<div class="block-title">${esc(title)}</div>`}
+        <div class="block-meta">
+          <span>${fmtMin(sessionMin(x))}</span>
+          ${x.rating ? ratingDots(x.rating) : ''}
+          ${nDistr ? `<span>${nDistr} ${nDistr === 1 ? 'Ablenkung' : 'Ablenkungen'}</span>` : ''}
+          ${opts.compact ? '' : tag}
+          ${x.manual ? '<span class="tag">nachgetragen</span>' : ''}
         </div>
-        <button type="button" class="icon-btn" data-action="delete" aria-label="Block löschen">${ICONS.trash}</button>
-      </li>`;
-  }).join('');
+      </div>
+      ${opts.readOnly ? '' : `<button type="button" class="icon-btn" data-action="delete-block" aria-label="Block löschen">${ICONS.trash}</button>`}
+    </li>`;
 }
 
-function onBlocksClick(e) {
-  const btn = e.target.closest('button[data-action="delete"]');
+function onBlockDeleteClick(e) {
+  const btn = e.target.closest('button[data-action="delete-block"]');
   if (!btn) return;
   const id = btn.closest('.block').dataset.id;
-  const s = state.sessions.find(x => x.id === id);
-  if (!s) return;
-  if (!confirm(`Block von ${fmtClock(s.start)} bis ${fmtClock(s.end)} Uhr löschen?`)) return;
-  state.sessions = state.sessions.filter(x => x.id !== id);
+  const x = state.sessions.find(y => y.id === id);
+  if (!x) return;
+  if (!confirm(`Block von ${fmtClock(x.start)} bis ${fmtClock(x.end)} Uhr löschen?`)) return;
+  state.sessions = state.sessions.filter(y => y.id !== id);
   saveState();
+  if (!$('#edit-sheet').hidden) renderEditBlocks();
   renderToday();
+  toast('Block gelöscht');
 }
 
 /* ---------- Abend-Check ---------- */
@@ -923,17 +1071,14 @@ let noteTimer = null;
 let savedTimer = null;
 
 function renderDaySummary() {
-  const prios = todayPriorities();
   const sessions = todaySessions();
   const focus = sessions.reduce((a, s) => a + sessionMin(s), 0);
-  const prioFocus = sessions.filter(s => s.priorityId).reduce((a, s) => a + sessionMin(s), 0);
-  const planned = prios.reduce((a, p) => a + p.estimateMin, 0);
-  const done = prios.filter(p => p.done).length;
+  const taskFocus = sessions.filter(s => s.priorityId).reduce((a, s) => a + sessionMin(s), 0);
   $('#day-summary').innerHTML = `
-    <div><span>Erledigt</span><strong>${prios.length ? `${done}/${prios.length}` : '–'}</strong></div>
-    <div><span>Geplant</span><strong>${planned ? fmtMin(planned) : '–'}</strong></div>
-    <div><span>Fokus</span><strong>${focus ? fmtMin(focus) : '–'}</strong></div>
-    <div><span>davon Prioritäten</span><strong>${focus ? fmtMin(prioFocus) : '–'}</strong></div>`;
+    <div><span>Erledigt</span><strong>${doneToday().length}</strong></div>
+    <div><span>Noch offen</span><strong>${openTasks().length}</strong></div>
+    <div><span>Fokus</span><strong>${focus >= 1 ? fmtMin(focus) : '–'}</strong></div>
+    <div><span>davon To-dos</span><strong>${focus >= 1 ? fmtMin(taskFocus) : '–'}</strong></div>`;
 }
 
 function renderEvening() {
@@ -1022,7 +1167,6 @@ function showView(name) {
 function renderAuswertung() {
   if (typeof renderStats === 'function') renderStats();
   renderBackupInfo();
-  renderDemoButtons();
 }
 
 /* =========================================================
@@ -1088,12 +1232,8 @@ function importData(e) {
       alert('Diese Datei ist keine gültige Fokus-Sicherung.');
       return;
     }
-    const nDays = Object.keys(data.days).length;
-    if (!confirm(`Sicherung mit ${nDays} Tagen und ${data.sessions.length} Fokus-Blöcken wiederherstellen?\n\nDeine aktuellen Daten auf diesem Gerät werden dabei ersetzt.`)) return;
-    const keepRange = state.meta.statsRange;
+    if (!confirm(`Sicherung mit ${data.sessions.length} Fokus-Blöcken wiederherstellen?\n\nDeine aktuellen Daten auf diesem Gerät werden dabei ersetzt.`)) return;
     state = normalizeState(data);
-    state.meta.statsRange = state.meta.statsRange || keepRange;
-    state.meta.demoSeeded = true;
     saveState();
     stopTicking();
     if (state.running && !state.running.stopAt) startTicking();
@@ -1104,43 +1244,34 @@ function importData(e) {
   reader.readAsText(file);
 }
 
-/* ---------- Beispieldaten (Schalter im versteckten Bereich) ---------- */
-
-function renderDemoButtons() {
-  const has = typeof hasDemoData === 'function' && hasDemoData(state);
-  $('#btn-demo-load').hidden = has;
-  $('#btn-demo-clear').hidden = !has;
-}
-
-function loadDemo() {
-  if (typeof seedDemoData !== 'function') return;
-  seedDemoData(state);
-  state.meta.demoSeeded = true;
-  saveState();
-  renderAuswertung();
-  toast('Beispieldaten geladen');
-}
-
-function clearDemo() {
-  if (!confirm('Alle Beispieldaten löschen? Deine eigenen Einträge bleiben erhalten.')) return;
-  clearDemoData(state);
-  saveState();
-  renderAuswertung();
-  $('#advanced').open = false;
-  toast('Beispieldaten gelöscht');
-}
-
 /* =========================================================
    START
    ========================================================= */
 
 function bindEvents() {
-  $('#prio-est').innerHTML = ESTIMATES.map(e =>
-    `<option value="${e.min}" ${e.min === 60 ? 'selected' : ''}>${e.label}</option>`).join('');
-
-  $('#prio-form').addEventListener('submit', addPriority);
-  $('#prio-list').addEventListener('click', onPlanClick);
-  $('#carry-box').addEventListener('click', onCarryClick);
+  $('#prio-form').addEventListener('submit', addTask);
+  $('#prio-list').addEventListener('click', onTaskClick);
+  $('#done-list').addEventListener('click', onTaskClick);
+  $('#prio-title').addEventListener('input', () => { renderAddOptions(); renderSuggestions(); });
+  $('#prio-est-chips').addEventListener('click', e => {
+    const chip = e.target.closest('button[data-min]');
+    if (!chip) return;
+    const m = Number(chip.dataset.min);
+    newEst = newEst === m ? null : m;
+    renderAddOptions();
+  });
+  $('#btn-sort').addEventListener('click', () => {
+    state.meta.taskSort = state.meta.taskSort === 'added' ? 'prio' : 'added';
+    saveState();
+    renderTasks();
+    renderTimer();
+  });
+  $('#suggest-chips').addEventListener('click', onSuggestClick);
+  $('#btn-suggest-more').addEventListener('click', () => { suggestOffset += SUGGEST_COUNT; renderSuggestions(); });
+  $('#btn-suggest-toggle').addEventListener('click', () => { suggestOpen = !suggestOpen; renderSuggestions(); });
+  $('#others-box').addEventListener('click', onBlockDeleteClick);
+  $('#edit-blocks').addEventListener('click', onBlockDeleteClick);
+  $('#edit-delete').addEventListener('click', deleteEditTask);
 
   $('#focus-target').addEventListener('change', onTargetChange);
   $('#focus-other').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); startFocus(); } });
@@ -1171,8 +1302,6 @@ function bindEvents() {
     if (e.target === bd) closeSheet(`#${bd.id}`);
   }));
 
-  $('#block-list').addEventListener('click', onBlocksClick);
-
   $('#blocker-chips').addEventListener('click', onBlockerClick);
   $('#evening-note').addEventListener('input', onNoteInput);
   $('#evening-note').addEventListener('blur', () => {
@@ -1198,8 +1327,6 @@ function bindEvents() {
   $('#btn-export').addEventListener('click', exportData);
   $('#btn-import').addEventListener('click', () => $('#import-file').click());
   $('#import-file').addEventListener('change', importData);
-  $('#btn-demo-load').addEventListener('click', loadDemo);
-  $('#btn-demo-clear').addEventListener('click', clearDemo);
 
   // Zurück aus dem Hintergrund / nach dem Entsperren: alles neu berechnen
   document.addEventListener('visibilitychange', () => {
@@ -1234,16 +1361,8 @@ function registerServiceWorker() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const stored = loadState();
-  if (stored) {
-    state = stored;
-  } else {
-    // Allererster Start: Beispieldaten, damit die Auswertung sofort etwas zeigt
-    state = defaultState();
-    if (typeof seedDemoData === 'function') seedDemoData(state);
-    state.meta.demoSeeded = true;
-    saveState();
-  }
+  state = loadState() || defaultState();
+  saveState();   // übernommene/bereinigte Daten sofort festhalten
 
   $('#app-version').textContent = `Fokus, Version ${APP_VERSION}`;
   applyTheme(themePref());

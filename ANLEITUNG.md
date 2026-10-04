@@ -10,10 +10,12 @@ Die App: **https://lccaciu-beep.github.io/fokus/**
 4. Tippe oben rechts auf **„Hinzufügen“**.
 5. Starte die App ab jetzt über das neue Icon auf deinem Home-Bildschirm.
 
-## Beispieldaten löschen
+## So funktioniert die App
 
-Tab **Auswertung** › ganz nach unten scrollen › auf die drei Punkte **···** tippen › **„Beispieldaten löschen“**.
-Deine eigenen Einträge bleiben dabei erhalten.
+- **To-do-Liste:** Aufgaben mit Priorität (Hoch, Mittel, Niedrig) und optionaler Dauer. Offene Aufgaben bleiben stehen, bis du sie abhakst. Mit **▶** startest du den Timer direkt für eine Aufgabe.
+- **Fokus-Timer:** läuft weiter, auch wenn das Handy gesperrt ist. Ablenkungen per Tipp zählen, am Ende die Konzentration bewerten.
+- **Abend-Check:** Energie, größter Bremsklotz und eine Notiz. Wird automatisch gespeichert.
+- **Auswertung:** 7, 30 oder 90 Tage, oder über **Kalender** einen einzelnen Tag (ein Tipp) bzw. einen beliebigen Zeitraum (zwei Tipps).
 
 ## Daten sichern
 

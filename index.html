@@ -28,7 +28,6 @@
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
   <script src="stats.js" defer></script>
-  <script src="demo.js" defer></script>
 </head>
 <body>
   <div class="statusbar-scrim" aria-hidden="true"></div>
@@ -95,34 +94,51 @@
         </div>
       </section>
 
-      <!-- Tagesplan -->
+      <!-- To-do-Liste -->
       <section class="card" id="plan-card" aria-labelledby="plan-title">
         <div class="card-head">
-          <h2 id="plan-title">Tagesplan</h2>
-          <span class="muted small" id="plan-count"></span>
+          <h2 id="plan-title">To-do-Liste</h2>
+          <div class="head-tools">
+            <span class="muted small" id="plan-count"></span>
+            <button type="button" class="sort-btn" id="btn-sort" aria-label="Sortierung wechseln">Nach Priorität</button>
+          </div>
         </div>
         <ul class="prio-list" id="prio-list"></ul>
-        <div class="carry" id="carry-box" hidden></div>
-        <form id="prio-form" class="prio-form" autocomplete="off">
-          <input id="prio-title" class="input" type="text" maxlength="80" placeholder="Neue Priorität …" enterkeyhint="done" required>
-          <div class="row">
-            <label class="visually-hidden" for="prio-est">Geschätzte Dauer</label>
-            <select id="prio-est" class="input"></select>
-            <button type="submit" class="btn btn-primary">Hinzufügen</button>
-          </div>
-        </form>
-      </section>
 
-      <!-- Heutige Blöcke -->
-      <section class="card" id="blocks-card" aria-labelledby="blocks-title">
-        <div class="card-head">
-          <h2 id="blocks-title">Heutige Blöcke</h2>
-          <span class="muted small" id="blocks-total"></span>
-        </div>
-        <ul class="block-list" id="block-list"></ul>
+        <form id="prio-form" class="prio-form" autocomplete="off">
+          <div class="add-row">
+            <label class="visually-hidden" for="prio-title">Neue Aufgabe</label>
+            <input id="prio-title" class="input" type="text" maxlength="80" placeholder="Neue Aufgabe …" enterkeyhint="done">
+            <button type="submit" class="btn btn-primary add-btn" aria-label="Aufgabe hinzufügen">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <div id="add-options" hidden>
+            <p class="est-label">Priorität</p>
+            <div class="prio-picker" id="new-prio" role="group" aria-label="Priorität"></div>
+            <p class="est-label">Wie lange wird es dauern? <span class="muted">(optional)</span></p>
+            <div class="est-chips" id="prio-est-chips"></div>
+          </div>
+          <div class="suggest" id="suggest-box" hidden>
+            <div class="suggest-head">
+              <span>Vorschläge zum Antippen</span>
+              <button type="button" class="link-btn" id="btn-suggest-more">Andere zeigen</button>
+            </div>
+            <div class="suggest-list" id="suggest-chips"></div>
+          </div>
+          <button type="button" class="link-btn suggest-toggle" id="btn-suggest-toggle" hidden>Vorschläge anzeigen</button>
+        </form>
+
+        <details class="done-box" id="done-box" hidden>
+          <summary>Heute erledigt <span class="done-count" id="done-count">0</span></summary>
+          <ul class="prio-list" id="done-list"></ul>
+        </details>
+
+        <div class="others" id="others-box" hidden></div>
+
         <button type="button" class="btn btn-ghost btn-add" id="btn-add-block">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
-          Block nachtragen
+          Vergessenen Block nachtragen
         </button>
       </section>
 
@@ -158,11 +174,13 @@
         </button>
       </header>
 
-      <div class="segmented" id="range-seg" role="group" aria-label="Zeitraum">
+      <div class="segmented segmented-4" id="range-seg" role="group" aria-label="Zeitraum">
         <button type="button" data-range="7">7 Tage</button>
-        <button type="button" data-range="14">14 Tage</button>
         <button type="button" data-range="30">30 Tage</button>
+        <button type="button" data-range="90">90 Tage</button>
+        <button type="button" data-range="cal">Kalender</button>
       </div>
+      <div class="card calendar" id="cal-box" hidden></div>
 
       <div id="stats-content"></div>
 
@@ -196,14 +214,6 @@
         <p class="muted small" id="last-backup"></p>
       </section>
 
-      <details class="advanced" id="advanced">
-        <summary aria-label="Erweiterte Optionen">···</summary>
-        <div class="advanced-body">
-          <p class="muted small">Beispieldaten helfen dir, die Auswertung auszuprobieren. Deine echten Einträge bleiben beim Löschen erhalten.</p>
-          <button type="button" class="btn btn-ghost" id="btn-demo-load">Beispieldaten laden</button>
-          <button type="button" class="btn btn-ghost btn-danger" id="btn-demo-clear">Beispieldaten löschen</button>
-        </div>
-      </details>
       <p class="version" id="app-version"></p>
     </main>
   </div>
@@ -245,7 +255,7 @@
       <label class="check-row" id="finish-done-row">
         <input type="checkbox" id="finish-done">
         <span class="check-box" aria-hidden="true"></span>
-        <span>Priorität als erledigt markieren</span>
+        <span>Aufgabe als erledigt markieren</span>
       </label>
 
       <button type="button" class="btn btn-primary btn-large" id="finish-save" disabled>Speichern</button>
@@ -285,7 +295,7 @@
       <label class="check-row" id="add-done-row" hidden>
         <input type="checkbox" id="add-done">
         <span class="check-box" aria-hidden="true"></span>
-        <span>Priorität als erledigt markieren</span>
+        <span>Aufgabe als erledigt markieren</span>
       </label>
 
       <button type="button" class="btn btn-primary btn-large" id="add-save" disabled>Block speichern</button>
@@ -297,13 +307,22 @@
   <div class="sheet-backdrop" id="edit-sheet" data-dismiss hidden>
     <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="edit-heading">
       <div class="sheet-handle" aria-hidden="true"></div>
-      <h2 id="edit-heading">Priorität bearbeiten</h2>
+      <h2 id="edit-heading">Aufgabe bearbeiten</h2>
       <label class="field-label" for="edit-title">Titel</label>
       <input id="edit-title" class="input" type="text" maxlength="80" autocomplete="off" enterkeyhint="done">
+      <p class="field-label">Priorität</p>
+      <div class="prio-picker" id="edit-prio" role="group" aria-label="Priorität"></div>
       <label class="field-label" for="edit-est">Geschätzte Dauer</label>
       <select id="edit-est" class="input"></select>
+      <div id="edit-blocks-wrap" hidden>
+        <p class="field-label">Deine Blöcke dafür</p>
+        <ul class="block-list edit-blocks" id="edit-blocks"></ul>
+      </div>
       <button type="button" class="btn btn-primary btn-large" id="edit-save">Speichern</button>
-      <button type="button" class="btn btn-ghost btn-block" id="edit-cancel">Abbrechen</button>
+      <div class="row">
+        <button type="button" class="btn btn-ghost" id="edit-cancel">Abbrechen</button>
+        <button type="button" class="btn btn-ghost btn-danger" id="edit-delete">Aufgabe löschen</button>
+      </div>
     </div>
   </div>
 
