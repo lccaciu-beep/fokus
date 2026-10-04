@@ -5,7 +5,7 @@
    Tagesplan · Fokus-Timer · Abend-Check · Datensicherung
    ========================================================= */
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.0.1';
 const STORAGE_KEY = 'fokus-app-v1';
 const MAX_PRIORITIES = 3;
 
@@ -404,7 +404,7 @@ function startFocus() {
   renderTimer();
   renderPlan();
   startTicking();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  $('#scroller').scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function countDistraction(e) {
@@ -616,7 +616,7 @@ function showView(name) {
   });
   if (name === 'auswertung') renderAuswertung();
   else renderToday();
-  window.scrollTo(0, 0);
+  $('#scroller').scrollTo(0, 0);
 }
 
 function renderAuswertung() {
@@ -772,6 +772,15 @@ function bindEvents() {
   $('#import-file').addEventListener('change', importData);
   $('#btn-demo-load').addEventListener('click', loadDemo);
   $('#btn-demo-clear').addEventListener('click', clearDemo);
+
+  // iOS verschiebt beim Öffnen der Tastatur die ganze Seite und vergisst
+  // manchmal, sie zurückzusetzen → nach dem Tippen wieder geraderücken
+  document.addEventListener('focusout', () => {
+    setTimeout(() => {
+      const el = document.activeElement;
+      if (!el || !el.matches('input, textarea, select')) window.scrollTo(0, 0);
+    }, 50);
+  });
 
   // Zurück aus dem Hintergrund / nach dem Entsperren: alles neu berechnen
   document.addEventListener('visibilitychange', () => {
