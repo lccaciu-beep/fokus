@@ -2,16 +2,12 @@
 
 /* =========================================================
    Fokus – Auswertung
-   Kennzahlen · SVG-Diagramme · regelbasierte Erkenntnisse
+   Kennzahlen, SVG-Diagramme, regelbasierte Erkenntnisse
    ========================================================= */
 
 const MIN_DATA_DAYS = 3;
 
-/* Konzentration 1–5 als Helligkeitsstufen der Akzentfarbe (eine Farbe, dunkel → hell) */
-const CONC_RAMP = ['#3B4170', '#4F5AA6', '#6573D6', '#8593FF', '#B7C0FF'];
-const COLOR_PRIO = '#7C8CFF';
-const COLOR_OTHER = '#5A606E';
-const COLOR_GRID = '#262A33';
+/* Farben kommen aus dem Farbschema (styles.css): Klassen c-prio, c-other, conc-1 … conc-5 */
 
 const TIME_SLOTS = [
   { id: 'vormittag', label: 'vormittags', target: 'auf den Vormittag', from: 5, to: 12 },
@@ -52,9 +48,10 @@ function dayLabelLong(date) {
   return date.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' });
 }
 
-function concColor(v) {
-  if (!v) return COLOR_OTHER;
-  return CONC_RAMP[Math.min(4, Math.max(0, Math.round(v) - 1))];
+/** Konzentration 1–5 als Helligkeitsstufe der Akzentfarbe */
+function concClass(v) {
+  if (!v) return 'conc-0';
+  return `conc-${Math.min(5, Math.max(1, Math.round(v)))}`;
 }
 
 /** Abstand für Achsenbeschriftung: 1, 2, 2,5, 5 × 10^k */
@@ -153,6 +150,11 @@ function computeStats(n) {
     .map(d => ({ ...d, count: sum(sessions.map(s => (s.distractions || {})[d.id] || 0)) }))
     .sort((a, b) => b.count - a.count);
 
+  // Zeit außerhalb der Prioritäten nach Kategorie (in Minuten)
+  const categories = CATEGORIES
+    .map(c => ({ ...c, count: sum(sessions.filter(s => sessionCategory(s) === c.id).map(sessionMin)) }))
+    .sort((a, b) => b.count - a.count);
+
   const evenings = days.map(d => d.evening).filter(Boolean);
   const blockers = BLOCKERS
     .map(b => ({ ...b, count: evenings.filter(e => e.blocker === b.id).length }))
@@ -171,7 +173,7 @@ function computeStats(n) {
     ratio: estCount ? actSum / estSum : null,
     avgRating: avg(ratings),
     ratingCount: ratings.length,
-    hours, slots, distractions, blockers, evenings,
+    hours, slots, distractions, blockers, evenings, categories,
     avgEnergy: avg(energies),
     energyCount: energies.length,
   };
@@ -206,10 +208,13 @@ function buildInsights(st) {
 
   // 3. Fokuszeit geht in Sonstiges
   if (st.prioShare !== null && st.totalMin >= 120 && st.prioShare < 0.5) {
+    const topCat = st.categories[0];
     out.push({
       score: 48 + (0.5 - st.prioShare) * 120,
       title: `Nur ${pct(st.prioShare)} % deiner Fokuszeit gehen in Prioritäten`,
-      text: `${fmtMin(st.otherMin)} von ${fmtMin(st.totalMin)} hast du mit „Sonstigem“ verbracht. Das fühlt sich beschäftigt an, bringt dich bei deinen Prioritäten aber nicht weiter.`,
+      text: `${fmtMin(st.otherMin)} von ${fmtMin(st.totalMin)} gingen in andere Tätigkeiten` +
+        (topCat && topCat.count ? `, am meisten in „${topCat.label}“ (${fmtMin(topCat.count)}).` : '.') +
+        ' Das fühlt sich beschäftigt an, bringt dich bei deinen Prioritäten aber nicht weiter.',
       tip: 'Reserviere den ersten Block des Tages fest für deine wichtigste Priorität. Sonstiges bündelst du danach in einem gemeinsamen Block.',
     });
   }
@@ -299,7 +304,7 @@ function chartDaily(st) {
   let g = '';
   for (let h = 0; h <= topH + 1e-9; h += stepH) {
     const yy = y(h * 60);
-    g += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="${COLOR_GRID}" stroke-width="1"/>`;
+    g += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" class="grid"/>`;
     g += `<text x="${L - 6}" y="${yy + 4}" text-anchor="end">${fmtNum(h)} h</text>`;
   }
 
@@ -315,18 +320,18 @@ function chartDaily(st) {
     const yTotal = y(d.prioMin + d.otherMin);
 
     if (d.otherMin > 0 && d.prioMin > 0) {
-      bars += `<rect x="${x}" y="${yPrio}" width="${bw}" height="${base - yPrio}" fill="${COLOR_PRIO}"/>`;
+      bars += `<rect x="${x}" y="${yPrio}" width="${bw}" height="${base - yPrio}" class="c-prio"/>`;
       // 2px Abstand zwischen den Segmenten
-      bars += `<path d="${barPath(x, yTotal, bw, Math.max(0, yPrio - yTotal - 2))}" fill="${COLOR_OTHER}"/>`;
+      bars += `<path d="${barPath(x, yTotal, bw, Math.max(0, yPrio - yTotal - 2))}" class="c-other"/>`;
     } else if (d.prioMin > 0) {
-      bars += `<path d="${barPath(x, yPrio, bw, base - yPrio)}" fill="${COLOR_PRIO}"/>`;
+      bars += `<path d="${barPath(x, yPrio, bw, base - yPrio)}" class="c-prio"/>`;
     } else if (d.otherMin > 0) {
-      bars += `<path d="${barPath(x, yTotal, bw, base - yTotal)}" fill="${COLOR_OTHER}"/>`;
+      bars += `<path d="${barPath(x, yTotal, bw, base - yTotal)}" class="c-other"/>`;
     }
 
     if (d.plannedMin > 0) {
       const yp = y(d.plannedMin);
-      bars += `<line x1="${x - 3}" x2="${x + bw + 3}" y1="${yp}" y2="${yp}" stroke="#F2F3F6" stroke-width="2" stroke-linecap="round"/>`;
+      bars += `<line x1="${x - 3}" x2="${x + bw + 3}" y1="${yp}" y2="${yp}" class="c-plan"/>`;
     }
 
     if ((n - 1 - i) % every === 0) {
@@ -336,10 +341,10 @@ function chartDaily(st) {
 
     const total = d.prioMin + d.otherMin;
     const detail = total || d.plannedMin
-      ? `<strong>${dayLabelLong(d.d)}</strong>: ${fmtMin(total)} Fokus (${fmtMin(d.prioMin)} Prioritäten, ${fmtMin(d.otherMin)} Sonstiges)` +
-        (d.plannedMin ? ` · geplant ${fmtMin(d.plannedMin)}` : '')
+      ? `<strong>${dayLabelLong(d.d)}</strong>: ${fmtMin(total)} Fokus (${fmtMin(d.prioMin)} Prioritäten, ${fmtMin(d.otherMin)} andere)` +
+        (d.plannedMin ? `, geplant ${fmtMin(d.plannedMin)}` : '')
       : `<strong>${dayLabelLong(d.d)}</strong>: keine Daten`;
-    hits += `<rect class="hit" x="${L + i * slot}" y="${T}" width="${slot}" height="${ih}" fill="transparent" data-detail="${esc(detail)}"/>`;
+    hits += `<rect class="hit" x="${L + i * slot}" y="${T}" width="${slot}" height="${ih}" data-detail="${esc(detail)}"/>`;
   });
 
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Fokuszeit pro Tag">${g}${bars}${labels}${hits}</svg>`;
@@ -363,7 +368,7 @@ function chartHours(st) {
 
   let g = '';
   for (let v = 0; v <= top + 1e-9; v += step) {
-    g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="${COLOR_GRID}" stroke-width="1"/>`;
+    g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid"/>`;
     g += `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${fmtNum(v, 0)}</text>`;
   }
 
@@ -376,18 +381,18 @@ function chartHours(st) {
     const v = vals[h];
     const hd = st.hours[h];
     const conc = hd.wMin ? hd.wSum / hd.wMin : null;
-    if (v > 0) bars += `<path d="${barPath(x, y(v), bw, y(0) - y(v), 3)}" fill="${concColor(conc)}"/>`;
+    if (v > 0) bars += `<path d="${barPath(x, y(v), bw, y(0) - y(v), 3)}" class="${concClass(conc)}"/>`;
     if (h % 3 === 0) labels += `<text x="${L + i * slot + slot / 2}" y="${H - 8}" text-anchor="middle">${h} Uhr</text>`;
     const detail = v > 0
-      ? `<strong>${h}–${h + 1} Uhr</strong>: ${fmtMin(hd.min)} insgesamt (Ø ${fmtMin(v)} pro aktivem Tag)` + (conc ? ` · Ø Konzentration ${fmtNum(conc)}` : '')
+      ? `<strong>${h}–${h + 1} Uhr</strong>: ${fmtMin(hd.min)} insgesamt (Ø ${fmtMin(v)} pro aktivem Tag)` + (conc ? `, Ø Konzentration ${fmtNum(conc)}` : '')
       : `<strong>${h}–${h + 1} Uhr</strong>: keine Fokuszeit`;
-    hits += `<rect class="hit" x="${L + i * slot}" y="${T}" width="${slot}" height="${ih}" fill="transparent" data-detail="${esc(detail)}"/>`;
+    hits += `<rect class="hit" x="${L + i * slot}" y="${T}" width="${slot}" height="${ih}" data-detail="${esc(detail)}"/>`;
   }
 
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Fokuszeit nach Uhrzeit, eingefärbt nach Konzentration">${g}${bars}${labels}${hits}</svg>`;
 }
 
-function chartRanking(items, emptyText) {
+function chartRanking(items, emptyText, fmtValue) {
   const rows = items.filter(i => i.count > 0);
   if (!rows.length) return `<p class="muted small">${emptyText}</p>`;
   const total = sum(rows.map(r => r.count));
@@ -399,9 +404,9 @@ function chartRanking(items, emptyText) {
     const w = Math.max(6, (r.count / max) * W);
     return `
       <text class="lbl" x="0" y="${yy + 14}">${esc(r.label)}</text>
-      <text class="val" x="${W}" y="${yy + 14}" text-anchor="end">${r.count}× · ${pct(r.count / total)} %</text>
-      <rect x="0" y="${yy + 22}" width="${W}" height="10" rx="5" fill="${COLOR_GRID}"/>
-      <rect x="0" y="${yy + 22}" width="${w}" height="10" rx="5" fill="${i === 0 ? COLOR_PRIO : '#4F5AA6'}"/>`;
+      <text class="val" x="${W}" y="${yy + 14}" text-anchor="end">${fmtValue ? fmtValue(r.count) : `${r.count}×`} (${pct(r.count / total)} %)</text>
+      <rect x="0" y="${yy + 22}" width="${W}" height="10" rx="5" class="track"/>
+      <rect x="0" y="${yy + 22}" width="${w}" height="10" rx="5" class="${i === 0 ? 'c-prio' : 'c-prio-dim'}"/>`;
   }).join('');
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Rangliste">${body}</svg>`;
 }
@@ -443,14 +448,14 @@ function renderKpis(st) {
 function renderFocusCard(top) {
   if (!top) {
     return `<section class="card focus-card">
-      <p class="eyebrow accent">Dein Ansatzpunkt</p>
+      <p class="focus-label">Dein Ansatzpunkt</p>
       <h2>Du bist auf einem guten Weg</h2>
       <p>Plan und Wirklichkeit liegen nah beieinander, keine deutliche Schwachstelle in diesem Zeitraum.</p>
       <div class="tip-box">${BULB}<p>Halte deinen Rhythmus und steigere dich behutsam: Plane deine wichtigste Priorität etwas ambitionierter als bisher.</p></div>
     </section>`;
   }
   return `<section class="card focus-card">
-    <p class="eyebrow accent">Dein Ansatzpunkt</p>
+    <p class="focus-label">Dein Ansatzpunkt</p>
     <h2>${esc(top.title)}</h2>
     <p>${esc(top.text)}</p>
     <div class="tip-box">${BULB}<p>${esc(top.tip)}</p></div>
@@ -485,11 +490,11 @@ function renderStats() {
 
     <section class="card">
       <div class="card-head"><h2>Fokuszeit pro Tag</h2></div>
-      <p class="card-sub">${fmtMin(st.totalMin)} Fokus${planned ? ` bei ${fmtMin(planned)} geplant` : ''}${st.prioShare !== null ? ` · ${pct(st.prioShare)} % in Prioritäten` : ''}</p>
+      <p class="card-sub">${fmtMin(st.totalMin)} Fokus${planned ? ` bei ${fmtMin(planned)} geplant` : ''}${st.prioShare !== null ? `, davon ${pct(st.prioShare)} % in Prioritäten` : ''}</p>
       ${chartDaily(st)}
       <div class="legend">
-        <span><i style="background:${COLOR_PRIO}"></i>Prioritäten</span>
-        <span><i style="background:${COLOR_OTHER}"></i>Sonstiges</span>
+        <span><i style="background:var(--chart-prio)"></i>Prioritäten</span>
+        <span><i style="background:var(--chart-other)"></i>Andere Tätigkeiten</span>
         <span><i class="line"></i>Geplant</span>
       </div>
       <p class="chart-detail" data-default="Tippe auf einen Tag für Details.">Tippe auf einen Tag für Details.</p>
@@ -500,9 +505,15 @@ function renderStats() {
       <p class="card-sub">Ø Minuten pro aktivem Tag, Farbe zeigt die Konzentration</p>
       ${chartHours(st)}
       <div class="legend">
-        <span>Konzentration 1 <span style="display:inline-flex;gap:2px">${CONC_RAMP.map(c => `<i style="background:${c}"></i>`).join('')}</span> 5</span>
+        <span>Konzentration 1 <span class="ramp">${[1, 2, 3, 4, 5].map(n => `<i style="background:var(--conc-${n})"></i>`).join('')}</span> 5</span>
       </div>
       <p class="chart-detail" data-default="Tippe auf eine Stunde für Details.">Tippe auf eine Stunde für Details.</p>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Wofür geht die übrige Zeit drauf?</h2></div>
+      <p class="card-sub">Fokuszeit außerhalb deiner Prioritäten</p>
+      ${chartRanking(st.categories, 'In diesem Zeitraum ging deine ganze Fokuszeit in Prioritäten. Stark!', fmtMin)}
     </section>
 
     <section class="card">

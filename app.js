@@ -5,9 +5,10 @@
    Tagesplan · Fokus-Timer · Abend-Check · Datensicherung
    ========================================================= */
 
-const APP_VERSION = '1.0.2';
+const APP_VERSION = '1.2.0';
 const STORAGE_KEY = 'fokus-app-v1';
 const MAX_PRIORITIES = 3;
+const LONG_RUN_MIN = 180;   // ab hier fragen wir, ob der Timer vergessen wurde
 
 const ESTIMATES = [
   { min: 15, label: '15 min' },
@@ -18,6 +19,20 @@ const ESTIMATES = [
   { min: 120, label: '2 h' },
   { min: 180, label: '3 h' },
   { min: 240, label: '4 h' },
+];
+
+const BLOCK_DURATIONS = [15, 25, 30, 45, 60, 75, 90, 120, 150, 180, 240];
+
+/* Tätigkeiten außerhalb der Tagesprioritäten */
+const CATEGORIES = [
+  { id: 'mails', label: 'Mails & Nachrichten' },
+  { id: 'meetings', label: 'Meetings & Calls' },
+  { id: 'orga', label: 'Orga & Planung' },
+  { id: 'lernen', label: 'Lernen & Weiterbildung' },
+  { id: 'recherche', label: 'Recherche' },
+  { id: 'privat', label: 'Haushalt & Privates' },
+  { id: 'sport', label: 'Sport & Gesundheit' },
+  { id: 'sonstiges', label: 'Sonstiges' },
 ];
 
 const DISTRACTIONS = [
@@ -39,11 +54,12 @@ const BLOCKERS = [
   { id: 'nichts', label: 'Nichts – lief gut' },
 ];
 
-const OTHER_VALUE = '__other';
+const NEW_PRIO_VALUE = '__new';
 
 const ICONS = {
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
 };
 
 /* ---------- Hilfsfunktionen ---------- */
@@ -96,6 +112,10 @@ function estimateLabel(min) {
 }
 
 function labelOf(list, id) { return (list.find(x => x.id === id) || {}).label || id; }
+function catLabel(id) { return labelOf(CATEGORIES, id || 'sonstiges'); }
+
+/** Kategorie eines Blocks (null = Priorität) */
+function sessionCategory(s) { return s.priorityId ? null : (s.category || 'sonstiges'); }
 
 /* ---------- Datenhaltung ---------- */
 
@@ -109,7 +129,7 @@ function defaultState() {
   };
 }
 
-/** Bringt (auch importierte) Daten in eine gültige Form. */
+/** Bringt (auch importierte oder ältere) Daten in eine gültige Form. */
 function normalizeState(raw) {
   const s = defaultState();
   if (!raw || typeof raw !== 'object') return s;
@@ -131,8 +151,9 @@ function normalizeState(raw) {
       .map(x => ({ ...x, date: x.date || ymd(new Date(x.start)), distractions: x.distractions || {} }));
   }
   if (raw.running && typeof raw.running.start === 'number') {
-    s.running = { distractions: {}, stopAt: null, ...raw.running };
+    s.running = { distractions: {}, stopAt: null, category: null, ...raw.running };
     if (!s.running.date) s.running.date = ymd(new Date(s.running.start));
+    if (!s.running.priorityId && !s.running.category) s.running.category = 'sonstiges';
   }
   if (raw.meta && typeof raw.meta === 'object') Object.assign(s.meta, raw.meta);
   return s;
@@ -166,6 +187,7 @@ function getDay(key, create = false) {
 }
 
 function todayPriorities() { return (getDay(todayKey()) || {}).priorities || []; }
+function todaySessions() { const k = todayKey(); return state.sessions.filter(s => s.date === k); }
 
 function findPriority(id) {
   if (!id) return null;
@@ -203,6 +225,18 @@ function toast(msg, action) {
 
 function hideToast() { $('#toast').classList.remove('show'); }
 
+/* ---------- Sheets (Fenster von unten) ---------- */
+
+function openSheet(sel) {
+  $(sel).hidden = false;
+  document.body.classList.add('sheet-open');
+}
+
+function closeSheet(sel) {
+  $(sel).hidden = true;
+  if (!$$('.sheet-backdrop').some(s => !s.hidden)) document.body.classList.remove('sheet-open');
+}
+
 /* ---------- Bewertungs-Buttons (1–5) ---------- */
 
 function renderRating(container, value, onPick) {
@@ -215,14 +249,65 @@ function renderRating(container, value, onPick) {
   };
 }
 
+/* ---------- Auswahl „Woran arbeitest du?“ ---------- */
+
+let recentTargets = [];
+
+/** Zuletzt genutzte eigene Beschreibungen (z. B. „Steuer-Unterlagen“ in Orga) */
+function recentCustomTargets() {
+  const seen = new Set();
+  const out = [];
+  const sorted = state.sessions.filter(s => !s.priorityId && !s.demo).sort((a, b) => b.start - a.start);
+  for (const s of sorted) {
+    const cat = sessionCategory(s);
+    if (!s.label || s.label === catLabel(cat)) continue;
+    const key = `${cat}|${s.label.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ category: cat, label: s.label });
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
+function buildTargetOptions(includeNew) {
+  const open = todayPriorities().filter(p => !p.done);
+  recentTargets = recentCustomTargets();
+  let html = '';
+  if (open.length) {
+    html += `<optgroup label="Prioritäten von heute">${open.map(p =>
+      `<option value="p:${p.id}">${esc(p.title)}</option>`).join('')}</optgroup>`;
+  }
+  if (recentTargets.length) {
+    html += `<optgroup label="Zuletzt genutzt">${recentTargets.map((t, i) =>
+      `<option value="r:${i}">${esc(t.label)}</option>`).join('')}</optgroup>`;
+  }
+  html += `<optgroup label="Andere Tätigkeit">${CATEGORIES.map(c =>
+    `<option value="c:${c.id}">${esc(c.label)}</option>`).join('')}</optgroup>`;
+  if (includeNew && todayPriorities().length < MAX_PRIORITIES) {
+    html += `<option value="${NEW_PRIO_VALUE}">+ Neue Priorität anlegen …</option>`;
+  }
+  return html;
+}
+
+/** "p:…", "r:…", "c:…" → { priorityId, category, label } */
+function parseTarget(val, descr) {
+  if (val && val.startsWith('p:')) return { priorityId: val.slice(2), category: null, label: '' };
+  if (val && val.startsWith('r:')) {
+    const t = recentTargets[Number(val.slice(2))];
+    if (t) return { priorityId: null, category: t.category, label: t.label };
+  }
+  const cat = val && val.startsWith('c:') ? val.slice(2) : 'sonstiges';
+  return { priorityId: null, category: cat, label: (descr || '').trim() };
+}
+
+function selectHasValue(sel, v) { return $$('option', sel).some(o => o.value === v); }
+
 /* =========================================================
    HEUTE
    ========================================================= */
 
-let renderedDay = null;
-
 function renderToday() {
-  renderedDay = todayKey();
   $('#today-date').textContent = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
   renderTimer();
   renderPlan();
@@ -250,11 +335,11 @@ function renderPlan() {
         <li class="prio ${p.done ? 'done' : ''}" data-id="${p.id}">
           <button type="button" class="check" data-action="toggle" aria-pressed="${!!p.done}"
             aria-label="${p.done ? 'Als offen markieren' : 'Als erledigt markieren'}"><span>${ICONS.check}</span></button>
-          <div class="prio-body">
-            <div class="prio-title">${esc(p.title)}</div>
-            <div class="prio-meta">${meta}</div>
-            <div class="progress" aria-hidden="true"><span class="${over ? 'over' : ''}" style="width:${pct}%"></span></div>
-          </div>
+          <button type="button" class="prio-body" data-action="edit" aria-label="${esc(p.title)} bearbeiten">
+            <span class="prio-title">${esc(p.title)}</span>
+            <span class="prio-meta">${meta}</span>
+            <span class="progress" aria-hidden="true"><span class="${over ? 'over' : ''}" style="width:${pct}%"></span></span>
+          </button>
           <button type="button" class="icon-btn" data-action="delete" aria-label="Priorität löschen">${ICONS.trash}</button>
         </li>`;
     }).join('');
@@ -262,9 +347,10 @@ function renderPlan() {
 
   const done = prios.filter(p => p.done).length;
   const planned = prios.reduce((a, p) => a + p.estimateMin, 0);
-  $('#plan-count').textContent = prios.length ? `${done}/${prios.length} erledigt · ${fmtMin(planned)} geplant` : '';
+  $('#plan-count').textContent = prios.length ? `${done} von ${prios.length} erledigt, ${fmtMin(planned)} geplant` : '';
   $('#prio-form').hidden = prios.length >= MAX_PRIORITIES;
-  $('#prio-form').classList.toggle('is-first', !prios.length);
+  renderCarry();
+  $('#prio-form').classList.toggle('is-first', !prios.length && $('#carry-box').hidden);
 }
 
 function addPriority(e) {
@@ -296,7 +382,10 @@ function onPlanClick(e) {
     saveState();
     renderPlan();
     renderTimer();
+    renderEvening();
     if (p.done) toast('Erledigt. Stark!');
+  } else if (btn.dataset.action === 'edit') {
+    openEditSheet(p);
   } else if (btn.dataset.action === 'delete') {
     if (state.running && state.running.priorityId === id) {
       toast('Diese Priorität läuft gerade im Timer.');
@@ -307,46 +396,227 @@ function onPlanClick(e) {
     saveState();
     renderPlan();
     renderTimer();
+    renderEvening();
   }
+}
+
+/* ---------- Priorität bearbeiten ---------- */
+
+let editId = null;
+
+function openEditSheet(p) {
+  editId = p.id;
+  $('#edit-title').value = p.title;
+  $('#edit-est').innerHTML = ESTIMATES.map(e =>
+    `<option value="${e.min}" ${e.min === p.estimateMin ? 'selected' : ''}>${e.label}</option>`).join('');
+  if (!ESTIMATES.some(e => e.min === p.estimateMin)) {
+    $('#edit-est').insertAdjacentHTML('afterbegin', `<option value="${p.estimateMin}" selected>${fmtMin(p.estimateMin)}</option>`);
+  }
+  openSheet('#edit-sheet');
+}
+
+function saveEdit() {
+  const p = findPriority(editId);
+  const title = $('#edit-title').value.trim();
+  if (!p) { closeSheet('#edit-sheet'); return; }
+  if (!title) { $('#edit-title').focus(); return; }
+  p.title = title;
+  p.estimateMin = Number($('#edit-est').value);
+  saveState();
+  closeSheet('#edit-sheet');
+  renderToday();
+  toast('Gespeichert');
+}
+
+/* ---------- Offene Prioritäten von gestern ---------- */
+
+/** Letzter Tag (bis 7 Tage zurück) mit Prioritäten → dessen offene Punkte */
+function carryCandidates() {
+  const today = getDay(todayKey());
+  if (today && today.carryDismissed) return null;
+  if (todayPriorities().length >= MAX_PRIORITIES) return null;
+  const carried = new Set(todayPriorities().map(p => p.fromId).filter(Boolean));
+  for (let i = 1; i <= 7; i++) {
+    const key = ymd(addDays(new Date(), -i));
+    const d = state.days[key];
+    if (!d || !d.priorities.length) continue;
+    const open = d.priorities.filter(p => !p.done && !carried.has(p.id));
+    return open.length ? { key, open, daysAgo: i } : null;
+  }
+  return null;
+}
+
+function renderCarry() {
+  const box = $('#carry-box');
+  const c = carryCandidates();
+  box.hidden = !c;
+  if (!c) return;
+  const when = c.daysAgo === 1 ? 'Offen von gestern'
+    : `Offen vom ${parseYmd(c.key).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'numeric' })}`;
+  box.innerHTML = `
+    <div class="carry-head">
+      <span>${when}</span>
+      <button type="button" class="link-btn" data-action="dismiss">Ausblenden</button>
+    </div>
+    <ul>${c.open.map(p => `
+      <li>
+        <span class="carry-title">${esc(p.title)} <span class="muted">(${estimateLabel(p.estimateMin)})</span></span>
+        <button type="button" class="btn btn-small" data-action="carry" data-id="${p.id}">${ICONS.plus}Übernehmen</button>
+      </li>`).join('')}
+    </ul>`;
+}
+
+function onCarryClick(e) {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const day = getDay(todayKey(), true);
+  if (btn.dataset.action === 'dismiss') {
+    day.carryDismissed = true;
+  } else {
+    if (day.priorities.length >= MAX_PRIORITIES) return;
+    const src = findPriority(btn.dataset.id);
+    if (!src) return;
+    day.priorities.push({ id: uid(), title: src.title, estimateMin: src.estimateMin, done: false, doneAt: null, fromId: src.id });
+    toast('Übernommen');
+  }
+  saveState();
+  renderPlan();
+  renderTimer();
+  renderEvening();
 }
 
 /* ---------- Fokus-Timer ---------- */
 
 let tickHandle = null;
 let tickCount = 0;
-let targetIsManual = false;   // „Sonstiges“ bewusst gewählt?
+let targetIsManual = false;   // Auswahl bewusst getroffen?
 
-function runLabel(r) {
+/** Titel und Unterzeile des laufenden Blocks */
+function runTitle(r) {
   if (r.priorityId) {
     const p = findPriority(r.priorityId);
-    return p ? p.title : 'Priorität';
+    return { title: p ? p.title : 'Priorität', sub: 'Priorität' };
   }
-  return r.otherLabel ? `Sonstiges: ${r.otherLabel}` : 'Sonstiges';
+  const cat = catLabel(r.category);
+  return r.otherLabel ? { title: r.otherLabel, sub: cat } : { title: cat, sub: '' };
+}
+
+function runLabel(r) {
+  const t = runTitle(r);
+  return t.sub && !r.priorityId ? `${t.title} (${t.sub})` : t.title;
 }
 
 function renderTargetSelect() {
   const sel = $('#focus-target');
   const prev = sel.value;
+  sel.innerHTML = buildTargetOptions(true);
   const open = todayPriorities().filter(p => !p.done);
-  sel.innerHTML =
-    open.map(p => `<option value="${p.id}">${esc(p.title)}</option>`).join('') +
-    `<option value="${OTHER_VALUE}">Sonstiges</option>`;
-  // Auswahl behalten, sonst die erste offene Priorität vorschlagen
-  if (prev && (prev !== OTHER_VALUE || targetIsManual) && $$('option', sel).some(o => o.value === prev)) sel.value = prev;
-  else sel.value = open.length ? open[0].id : OTHER_VALUE;
-  $('#focus-other').hidden = sel.value !== OTHER_VALUE;
+  // Bewusste Auswahl behalten, sonst die erste offene Priorität vorschlagen
+  if (prev && prev !== NEW_PRIO_VALUE && (targetIsManual || prev.startsWith('p:')) && selectHasValue(sel, prev)) sel.value = prev;
+  else sel.value = open.length ? `p:${open[0].id}` : 'c:sonstiges';
+  updateOtherInput();
+}
+
+function updateOtherInput() {
+  $('#focus-other').hidden = !$('#focus-target').value.startsWith('c:');
+}
+
+function onTargetChange() {
+  const sel = $('#focus-target');
+  if (sel.value === NEW_PRIO_VALUE) {
+    // Zur Eingabe im Tagesplan springen
+    const open = todayPriorities().filter(p => !p.done);
+    sel.value = open.length ? `p:${open[0].id}` : 'c:sonstiges';
+    updateOtherInput();
+    const input = $('#prio-title');
+    input.focus({ preventScroll: true });
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  targetIsManual = true;
+  updateOtherInput();
+}
+
+/* ---------- Zifferblatt ---------- */
+
+const DIAL_C = 150;
+
+function buildDialTicks() {
+  let html = '';
+  for (let i = 0; i < 60; i++) {
+    const major = i % 5 === 0;
+    const a = (i * 6 * Math.PI) / 180;
+    const pt = r => [(DIAL_C + r * Math.sin(a)).toFixed(2), (DIAL_C - r * Math.cos(a)).toFixed(2)];
+    const [x1, y1] = pt(major ? 135 : 139);
+    const [x2, y2] = pt(145);
+    html += `<line${major ? ' class="major"' : ''} x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+  }
+  $('#dial-ticks').innerHTML = html;
+}
+
+/** Ring füllen: 0 = leer, 1 = voll */
+function setDial(frac, over, sub) {
+  const f = Math.max(0, Math.min(1, frac || 0));
+  const visible = f > 0.002 ? '1' : '0';
+  const arc = $('#dial-arc');
+  arc.setAttribute('stroke-dasharray', `${(f * 100).toFixed(2)} 100`);
+  arc.style.opacity = visible;
+  const tip = $('#dial-tip-g');
+  tip.style.transform = `rotate(${(f * 360).toFixed(2)}deg)`;
+  tip.style.opacity = visible;
+  $('#dial').classList.toggle('is-over', !!over);
+  $('#dial-sub').textContent = sub || '';
+}
+
+/** Ohne Timer: heutige Fokuszeit im Verhältnis zur geplanten Zeit */
+function updateIdleDial() {
+  const focus = todaySessions().reduce((a, s) => a + sessionMin(s), 0);
+  const planned = todayPriorities().reduce((a, p) => a + p.estimateMin, 0);
+  let sub;
+  if (planned) sub = `${fmtMin(focus)} von ${fmtMin(planned)} geplant`;
+  else if (focus) sub = `Heute ${fmtMin(focus)} Fokus`;
+  else sub = 'Bereit für deinen ersten Block';
+  setDial(planned ? focus / planned : 0, false, sub);
+}
+
+/** Mit Timer: Priorität → Anteil der Schätzung, sonst eine Runde pro Stunde */
+function updateRunningDial(r) {
+  const elapsed = ((r.stopAt || Date.now()) - r.start) / 60000;
+  const p = findPriority(r.priorityId);
+  if (p && p.estimateMin) {
+    const inv = investedMin(p.id);
+    const over = inv > p.estimateMin;
+    setDial(inv / p.estimateMin, over, over
+      ? `${fmtMin(inv - p.estimateMin)} über der Schätzung`
+      : `${fmtMin(inv)} von ${estimateLabel(p.estimateMin)}`);
+  } else {
+    setDial((elapsed % 60) / 60, false, 'Ein Kreis = 1 Stunde');
+  }
 }
 
 function renderTimer() {
   const r = state.running;
   $('#timer-idle').hidden = !!r;
   $('#timer-running').hidden = !r;
+  $('#running-label').hidden = !r;
   $('#timer-card').classList.toggle('is-running', !!r);
   document.body.classList.toggle('timer-running', !!r);
 
-  if (!r) { renderTargetSelect(); return; }
+  if (!r) {
+    $('#timer-title').textContent = 'Fokus-Timer';
+    $('#run-cat').hidden = true;
+    const disp = $('#timer-display');
+    disp.textContent = '00:00';
+    disp.classList.remove('is-long');
+    renderTargetSelect();
+    updateIdleDial();
+    return;
+  }
 
-  $('#run-target').textContent = runLabel(r);
+  const t = runTitle(r);
+  $('#timer-title').textContent = t.title;
+  $('#run-cat').textContent = t.sub;
+  $('#run-cat').hidden = !t.sub;
   $('#run-since').textContent = `Gestartet um ${fmtClock(r.start)} Uhr`;
   renderDistractions();
   tick();
@@ -368,7 +638,10 @@ function renderDistractions(bumpId) {
 function tick() {
   const r = state.running;
   if (!r) return;
-  $('#timer-display').textContent = fmtTimer((r.stopAt || Date.now()) - r.start);
+  const disp = $('#timer-display');
+  disp.textContent = fmtTimer((r.stopAt || Date.now()) - r.start);
+  disp.classList.toggle('is-long', disp.textContent.length > 5);
+  updateRunningDial(r);
 }
 
 function startTicking() {
@@ -388,13 +661,13 @@ function stopTicking() {
 
 function startFocus() {
   if (state.running) return;
-  const val = $('#focus-target').value;
-  const isOther = val === OTHER_VALUE || !val;
+  const t = parseTarget($('#focus-target').value, $('#focus-other').value);
   state.running = {
     start: Date.now(),
     date: todayKey(),
-    priorityId: isOther ? null : val,
-    otherLabel: isOther ? $('#focus-other').value.trim() : '',
+    priorityId: t.priorityId,
+    category: t.category,
+    otherLabel: t.label,
     distractions: {},
     stopAt: null,
   };
@@ -445,15 +718,22 @@ function openFinishSheet() {
   if (!r) return;
   finishRating = 0;
   const mins = ((r.stopAt || Date.now()) - r.start) / 60000;
-  $('#finish-summary').textContent = `${mins < 1 ? 'unter 1 min' : fmtMin(mins)} · ${runLabel(r)}`;
+  $('#finish-summary').textContent = runLabel(r);
+  $('#finish-duration').textContent = mins < 1 ? 'unter 1 min' : fmtMin(mins);
+
+  // Sehr lange gelaufen? Dann gleich die Korrektur anbieten
+  const long = mins >= LONG_RUN_MIN;
+  $('#finish-adjust-box').hidden = !long;
+  $('#finish-adjust').hidden = long;
+  $('#finish-long-hint').hidden = !long;
+  $('#finish-minutes').value = long ? '' : Math.max(1, Math.round(mins));
 
   const p = findPriority(r.priorityId);
   $('#finish-done-row').hidden = !p || p.done;
   $('#finish-done').checked = false;
 
   updateFinishRating();
-  $('#finish-sheet').hidden = false;
-  document.body.classList.add('sheet-open');
+  openSheet('#finish-sheet');
 }
 
 function updateFinishRating() {
@@ -461,22 +741,34 @@ function updateFinishRating() {
   $('#finish-save').disabled = !finishRating;
 }
 
-function closeFinishSheet() {
-  $('#finish-sheet').hidden = true;
-  document.body.classList.remove('sheet-open');
-}
-
 function saveFinish() {
   const r = state.running;
   if (!r || !finishRating) return;
   const p = findPriority(r.priorityId);
+  let start = r.start;
+  let end = r.stopAt || Date.now();
+
+  // Korrigierte Dauer übernehmen
+  if (!$('#finish-adjust-box').hidden) {
+    const corrected = Math.round(Number($('#finish-minutes').value));
+    if (!corrected || corrected < 1 || corrected > 720) {
+      toast('Bitte eine Dauer zwischen 1 und 720 Minuten eintragen.');
+      $('#finish-minutes').focus();
+      return;
+    }
+    const elapsed = (end - start) / 60000;
+    if (corrected <= elapsed) end = start + corrected * 60000;
+    else start = end - corrected * 60000;
+  }
+
   const session = {
     id: uid(),
     date: r.date || ymd(new Date(r.start)),
-    start: r.start,
-    end: r.stopAt || Date.now(),
+    start,
+    end,
     priorityId: p ? p.id : null,
-    label: p ? p.title : (r.otherLabel || 'Sonstiges'),
+    category: p ? null : (r.category || 'sonstiges'),
+    label: p ? p.title : (r.otherLabel || catLabel(r.category)),
     distractions: { ...r.distractions },
     rating: finishRating,
   };
@@ -485,16 +777,16 @@ function saveFinish() {
   state.running = null;
   saveState();
   stopTicking();
-  closeFinishSheet();
+  closeSheet('#finish-sheet');
   renderToday();
-  toast(`Block gespeichert · ${fmtMin(sessionMin(session))}`);
+  toast(`Block gespeichert: ${fmtMin(sessionMin(session))}`);
 }
 
 function resumeFocus() {
   if (!state.running) return;
   state.running.stopAt = null;
   saveState();
-  closeFinishSheet();
+  closeSheet('#finish-sheet');
   startTicking();
   tick();
 }
@@ -504,9 +796,72 @@ function discardFocus() {
   state.running = null;
   saveState();
   stopTicking();
-  closeFinishSheet();
+  closeSheet('#finish-sheet');
   renderToday();
   toast('Block verworfen');
+}
+
+/* ---------- Block nachtragen ---------- */
+
+let addRating = 0;
+
+function openAddSheet() {
+  addRating = 0;
+  const sel = $('#add-target');
+  sel.innerHTML = buildTargetOptions(false);
+  const open = todayPriorities().filter(p => !p.done);
+  sel.value = open.length ? `p:${open[0].id}` : 'c:sonstiges';
+  $('#add-other').value = '';
+
+  // Vorschlag: vor einer Stunde, auf 5 Minuten gerundet
+  const d = new Date(Date.now() - 60 * 60000);
+  d.setMinutes(Math.floor(d.getMinutes() / 5) * 5);
+  $('#add-start').value = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  $('#add-dur').innerHTML = BLOCK_DURATIONS.map(m =>
+    `<option value="${m}" ${m === 45 ? 'selected' : ''}>${fmtMin(m)}</option>`).join('');
+
+  updateAddForm();
+  openSheet('#add-sheet');
+}
+
+function updateAddForm() {
+  const val = $('#add-target').value;
+  $('#add-other').hidden = !val.startsWith('c:');
+  const p = val.startsWith('p:') ? findPriority(val.slice(2)) : null;
+  $('#add-done-row').hidden = !p || p.done;
+  if ($('#add-done-row').hidden) $('#add-done').checked = false;
+  renderRating($('#add-rating'), addRating, v => { addRating = v; updateAddForm(); });
+  $('#add-save').disabled = !addRating;
+}
+
+function saveAdd() {
+  if (!addRating) return;
+  const [hh, mm] = ($('#add-start').value || '').split(':').map(Number);
+  if (Number.isNaN(hh) || Number.isNaN(mm)) { toast('Bitte eine Startzeit wählen.'); return; }
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm).getTime();
+  const end = start + Number($('#add-dur').value) * 60000;
+  if (end > Date.now() + 60000) { toast('Der Block würde in der Zukunft enden.'); return; }
+
+  const t = parseTarget($('#add-target').value, $('#add-other').value);
+  const p = findPriority(t.priorityId);
+  state.sessions.push({
+    id: uid(),
+    date: todayKey(),
+    start,
+    end,
+    priorityId: p ? p.id : null,
+    category: p ? null : t.category,
+    label: p ? p.title : (t.label || catLabel(t.category)),
+    distractions: {},
+    rating: addRating,
+    manual: true,
+  });
+  if (p && $('#add-done').checked) { p.done = true; p.doneAt = Date.now(); }
+  saveState();
+  closeSheet('#add-sheet');
+  renderToday();
+  toast('Block nachgetragen');
 }
 
 /* ---------- Heutige Blöcke ---------- */
@@ -516,8 +871,7 @@ function ratingDots(v) {
 }
 
 function renderBlocks() {
-  const key = todayKey();
-  const list = state.sessions.filter(s => s.date === key).sort((a, b) => a.start - b.start);
+  const list = todaySessions().sort((a, b) => a.start - b.start);
   const total = list.reduce((a, s) => a + sessionMin(s), 0);
   $('#blocks-total').textContent = list.length ? `${fmtMin(total)} Fokus` : '';
 
@@ -529,16 +883,21 @@ function renderBlocks() {
   $('#block-list').innerHTML = list.map(s => {
     const p = findPriority(s.priorityId);
     const title = p ? p.title : s.label;
+    const cat = sessionCategory(s);
+    const tag = s.priorityId ? '<span class="tag tag-prio">Priorität</span>'
+      : title !== catLabel(cat) ? `<span class="tag">${esc(catLabel(cat))}</span>` : '';
     const nDistr = Object.values(s.distractions || {}).reduce((a, b) => a + b, 0);
     return `
       <li class="block" data-id="${s.id}">
         <div class="block-time">${fmtClock(s.start)}<span>${fmtClock(s.end)}</span></div>
         <div class="block-body">
-          <div class="block-title">${esc(title)}${s.priorityId || title === 'Sonstiges' ? '' : '<span class="tag">Sonstiges</span>'}</div>
+          <div class="block-title">${esc(title)}</div>
           <div class="block-meta">
             <span>${fmtMin(sessionMin(s))}</span>
             ${s.rating ? ratingDots(s.rating) : ''}
             ${nDistr ? `<span>${nDistr} ${nDistr === 1 ? 'Ablenkung' : 'Ablenkungen'}</span>` : ''}
+            ${tag}
+            ${s.manual ? '<span class="tag">nachgetragen</span>' : ''}
           </div>
         </div>
         <button type="button" class="icon-btn" data-action="delete" aria-label="Block löschen">${ICONS.trash}</button>
@@ -555,8 +914,7 @@ function onBlocksClick(e) {
   if (!confirm(`Block von ${fmtClock(s.start)} bis ${fmtClock(s.end)} Uhr löschen?`)) return;
   state.sessions = state.sessions.filter(x => x.id !== id);
   saveState();
-  renderBlocks();
-  renderPlan();
+  renderToday();
 }
 
 /* ---------- Abend-Check ---------- */
@@ -564,7 +922,22 @@ function onBlocksClick(e) {
 let noteTimer = null;
 let savedTimer = null;
 
+function renderDaySummary() {
+  const prios = todayPriorities();
+  const sessions = todaySessions();
+  const focus = sessions.reduce((a, s) => a + sessionMin(s), 0);
+  const prioFocus = sessions.filter(s => s.priorityId).reduce((a, s) => a + sessionMin(s), 0);
+  const planned = prios.reduce((a, p) => a + p.estimateMin, 0);
+  const done = prios.filter(p => p.done).length;
+  $('#day-summary').innerHTML = `
+    <div><span>Erledigt</span><strong>${prios.length ? `${done}/${prios.length}` : '–'}</strong></div>
+    <div><span>Geplant</span><strong>${planned ? fmtMin(planned) : '–'}</strong></div>
+    <div><span>Fokus</span><strong>${focus ? fmtMin(focus) : '–'}</strong></div>
+    <div><span>davon Prioritäten</span><strong>${focus ? fmtMin(prioFocus) : '–'}</strong></div>`;
+}
+
 function renderEvening() {
+  renderDaySummary();
   const ev = (getDay(todayKey()) || {}).evening || {};
   renderRating($('#energy-rating'), ev.energy || 0, v => updateEvening({ energy: v }));
 
@@ -598,6 +971,33 @@ function onBlockerClick(e) {
 function onNoteInput() {
   clearTimeout(noteTimer);
   noteTimer = setTimeout(() => updateEvening({ note: $('#evening-note').value.trim() }, false), 500);
+}
+
+/* =========================================================
+   DARSTELLUNG (hell / dunkel / automatisch)
+   ========================================================= */
+
+const THEME_KEY = 'fokus-theme';
+const darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
+function themePref() {
+  try { return localStorage.getItem(THEME_KEY) || 'dark'; } catch { return 'dark'; }
+}
+
+function applyTheme(pref) {
+  const root = document.documentElement;
+  if (pref === 'system') root.removeAttribute('data-theme');
+  else root.setAttribute('data-theme', pref);
+  const dark = pref === 'dark' || (pref === 'system' && !!darkQuery && darkQuery.matches);
+  root.classList.toggle('is-dark', dark);
+  $('meta[name="theme-color"]').setAttribute('content', dark ? '#0B1020' : '#EEF1F7');
+  $$('#theme-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.themeValue === pref)));
+  $$('[data-theme-toggle]').forEach(b => b.setAttribute('aria-label', dark ? 'Helles Design einschalten' : 'Dunkles Design einschalten'));
+}
+
+function setTheme(pref) {
+  try { localStorage.setItem(THEME_KEY, pref); } catch { /* gilt dann nur für diese Sitzung */ }
+  applyTheme(pref);
 }
 
 /* =========================================================
@@ -740,11 +1140,9 @@ function bindEvents() {
 
   $('#prio-form').addEventListener('submit', addPriority);
   $('#prio-list').addEventListener('click', onPlanClick);
+  $('#carry-box').addEventListener('click', onCarryClick);
 
-  $('#focus-target').addEventListener('change', () => {
-    targetIsManual = true;
-    $('#focus-other').hidden = $('#focus-target').value !== OTHER_VALUE;
-  });
+  $('#focus-target').addEventListener('change', onTargetChange);
   $('#focus-other').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); startFocus(); } });
   $('#btn-start').addEventListener('click', startFocus);
   $('#btn-stop').addEventListener('click', stopFocus);
@@ -753,6 +1151,25 @@ function bindEvents() {
   $('#finish-save').addEventListener('click', saveFinish);
   $('#finish-resume').addEventListener('click', resumeFocus);
   $('#finish-discard').addEventListener('click', discardFocus);
+  $('#finish-adjust').addEventListener('click', () => {
+    $('#finish-adjust-box').hidden = false;
+    $('#finish-adjust').hidden = true;
+    $('#finish-minutes').focus();
+  });
+
+  $('#btn-add-block').addEventListener('click', openAddSheet);
+  $('#add-target').addEventListener('change', updateAddForm);
+  $('#add-save').addEventListener('click', saveAdd);
+  $('#add-cancel').addEventListener('click', () => closeSheet('#add-sheet'));
+
+  $('#edit-save').addEventListener('click', saveEdit);
+  $('#edit-cancel').addEventListener('click', () => closeSheet('#edit-sheet'));
+  $('#edit-title').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveEdit(); } });
+
+  // Tipp auf den abgedunkelten Hintergrund schließt einfache Sheets
+  $$('.sheet-backdrop[data-dismiss]').forEach(bd => bd.addEventListener('click', e => {
+    if (e.target === bd) closeSheet(`#${bd.id}`);
+  }));
 
   $('#block-list').addEventListener('click', onBlocksClick);
 
@@ -766,6 +1183,17 @@ function bindEvents() {
   });
 
   $$('.tab').forEach(t => t.addEventListener('click', () => showView(t.dataset.view)));
+
+  $$('[data-theme-toggle]').forEach(b => b.addEventListener('click', () => {
+    setTheme(document.documentElement.classList.contains('is-dark') ? 'light' : 'dark');
+  }));
+  $('#theme-seg').addEventListener('click', e => {
+    const b = e.target.closest('button[data-theme-value]');
+    if (b) setTheme(b.dataset.themeValue);
+  });
+  if (darkQuery && darkQuery.addEventListener) {
+    darkQuery.addEventListener('change', () => { if (themePref() === 'system') applyTheme('system'); });
+  }
 
   $('#btn-export').addEventListener('click', exportData);
   $('#btn-import').addEventListener('click', () => $('#import-file').click());
@@ -817,7 +1245,9 @@ document.addEventListener('DOMContentLoaded', () => {
     saveState();
   }
 
-  $('#app-version').textContent = `Fokus · Version ${APP_VERSION}`;
+  $('#app-version').textContent = `Fokus, Version ${APP_VERSION}`;
+  applyTheme(themePref());
+  buildDialTicks();
   bindEvents();
   renderToday();
 

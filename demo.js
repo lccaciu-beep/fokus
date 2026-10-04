@@ -33,7 +33,10 @@ function seedDemoData(st) {
     'Budget für Q4 planen', 'Code-Review abschließen', 'Konzept für Workshop', 'Rechnungen sortieren',
     'Lernplan erstellen', 'Newsletter schreiben', 'Datenanalyse fertigstellen',
   ];
-  const OTHER = ['Mails beantworten', 'Meeting vorbereiten', 'Orga & Ablage', 'Recherche', 'Telefonate', ''];
+  const OTHER = [
+    ['mails', 'Mails beantworten'], ['mails', ''], ['meetings', 'Team-Meeting'], ['meetings', ''],
+    ['orga', 'Ablage & Rechnungen'], ['orga', ''], ['recherche', ''], ['lernen', 'Online-Kurs'], ['privat', ''],
+  ];
   const NOTES = [
     'Morgens lief es super, nach dem Mittag ging nichts mehr.',
     'Zu oft aufs Handy geschaut.',
@@ -66,7 +69,7 @@ function seedDemoData(st) {
     let t = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 8, Math.floor(between(10, 70))).getTime();
     const sessions = [];
 
-    const addSession = (prio, label, len) => {
+    const addSession = (prio, other, len) => {
       const start = t;
       const end = Math.round(start + len * 60000);
       const hour = new Date(start).getHours();
@@ -83,7 +86,8 @@ function seedDemoData(st) {
       sessions.push({
         id: uid(), date: key, start, end,
         priorityId: prio ? prio.id : null,
-        label: prio ? prio.title : (label || 'Sonstiges'),
+        category: prio ? null : other[0],
+        label: prio ? prio.title : (other[1] || catLabel(other[0])),
         distractions, rating, demo: true,
       });
       t = end + between(8, 40) * 60000;
