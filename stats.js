@@ -230,7 +230,7 @@ function computeStats(range) {
   const energies = evenings.map(e => e.energy).filter(Boolean);
 
   // Wichtige Aufgaben, die seit über 3 Tagen offen sind
-  const staleHigh = state.tasks.filter(t => !t.done && t.priority === 'hoch' && Date.now() - t.createdAt > 3 * 86400000);
+  const staleHigh = state.tasks.filter(t => !t.done && isVisible(t) && t.priority === 'hoch' && Date.now() - t.createdAt > 3 * 86400000);
 
   return {
     range, days, sessions, dataDays, activeDays,
@@ -415,9 +415,11 @@ function chartBuckets(st) {
       })),
     };
   }
+  // Von hinten in 7-Tage-Pakete teilen, damit die aktuelle Woche vollständig ist
   const items = [];
-  for (let i = 0; i < st.days.length; i += 7) {
-    const chunk = st.days.slice(i, i + 7);
+  const rest = st.days.length % 7;
+  for (let i = rest ? rest - 7 : 0; i < st.days.length; i += 7) {
+    const chunk = st.days.slice(Math.max(0, i), i + 7);
     const last = chunk[chunk.length - 1];
     items.push({
       d: chunk[0].d,

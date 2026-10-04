@@ -5,7 +5,7 @@
    To-do-Liste, Fokus-Timer, Abend-Check, Datensicherung
    ========================================================= */
 
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.6.3';
 const STORAGE_KEY = 'fokus-app-v1';
 const LONG_RUN_MIN = 180;   // ab hier fragen wir, ob der Timer vergessen wurde
 const BACKUP_REMIND_DAYS = 7;
@@ -30,9 +30,12 @@ const PRIORITIES = [
 
 /* Lebensbereiche für Aufgaben, Wochenziele und Auswertung */
 const AREAS = [
-  { id: 'studium', label: 'Studium', short: 'Studium' },
-  { id: 'tiktok', label: 'TikTok Shop', short: 'TikTok' },
-  { id: 'privat', label: 'Privat', short: 'Privat' },
+  { id: 'studium', label: 'Studium', short: 'Studium', rec: 15,
+    why: 'Selbststudium neben den Vorlesungen. In der Prüfungsphase eher 20–25 h.' },
+  { id: 'tiktok', label: 'TikTok Shop', short: 'TikTok', rec: 7,
+    why: 'Reicht für etwa ein Video pro Tag mit Recherche, Dreh, Schnitt und Posten.' },
+  { id: 'privat', label: 'Privat', short: 'Privat', rec: 3,
+    why: 'Für Erledigungen und Organisatorisches.' },
 ];
 
 const REPEATS = [
@@ -240,10 +243,54 @@ function defaultState() {
   };
 }
 
+const SAFE_ID = /^[\w-]{1,64}$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const int1to5 = v => (Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 5 ? Number(v) : null);
+const safeId = v => (SAFE_ID.test(String(v ?? '')) ? String(v) : null);
+
+function cleanDistractions(d) {
+  const out = {};
+  if (d && typeof d === 'object') {
+    for (const x of DISTRACTIONS) {
+      const n = Math.floor(Number(d[x.id]));
+      if (n > 0 && n < 1000) out[x.id] = n;
+    }
+  }
+  return out;
+}
+
+/** Block aus gespeicherten oder importierten Daten in sichere Form bringen */
+function cleanSession(x) {
+  const out = {
+    id: safeId(x.id) || uid(),
+    date: DATE_RE.test(x.date || '') ? x.date : ymd(new Date(x.start)),
+    start: x.start,
+    end: x.end,
+    priorityId: safeId(x.priorityId),
+    category: CATEGORIES.some(c => c.id === x.category) ? x.category : null,
+    label: String(x.label ?? '').slice(0, 120),
+    distractions: cleanDistractions(x.distractions),
+    rating: int1to5(x.rating),
+  };
+  if (!out.priorityId && !out.category) out.category = 'sonstiges';
+  if ('area' in x) out.area = AREAS.some(a => a.id === x.area) ? x.area : null;
+  if (x.manual) out.manual = true;
+  return out;
+}
+
+function cleanEvening(e) {
+  return {
+    energy: int1to5(e.energy),
+    blocker: BLOCKERS.some(b => b.id === e.blocker) ? e.blocker : null,
+    note: String(e.note ?? '').slice(0, 500),
+    updatedAt: Number(e.updatedAt) || null,
+  };
+}
+
 function cleanTask(t) {
   return {
-    id: String(t.id),
-    title: String(t.title),
+    id: safeId(t.id) || uid(),
+    title: String(t.title).slice(0, 200),
     priority: PRIORITIES.some(p => p.id === t.priority) ? t.priority : 'mittel',
     estimateMin: Number(t.estimateMin) > 0 ? Number(t.estimateMin) : null,
     createdAt: Number(t.createdAt) || Date.now(),
@@ -253,6 +300,7 @@ function cleanTask(t) {
     dueDate: /^\d{4}-\d{2}-\d{2}$/.test(t.dueDate || '') ? t.dueDate : null,
     repeat: REPEATS.some(r => r.id && r.id === t.repeat) ? t.repeat : null,
     startDate: /^\d{4}-\d{2}-\d{2}$/.test(t.startDate || '') ? t.startDate : null,
+    spawnedId: safeId(t.spawnedId),
   };
 }
 
@@ -266,8 +314,8 @@ function normalizeState(raw) {
   const rawSessions = Array.isArray(raw.sessions) ? raw.sessions.filter(x => x && !x.demo) : [];
 
   s.sessions = rawSessions
-    .filter(x => typeof x.start === 'number' && typeof x.end === 'number' && x.end >= x.start)
-    .map(x => ({ ...x, date: x.date || ymd(new Date(x.start)), distractions: x.distractions || {} }));
+    .filter(x => Number.isFinite(x.start) && Number.isFinite(x.end) && x.end >= x.start)
+    .map(cleanSession);
 
   if (Array.isArray(raw.tasks)) {
     s.tasks = raw.tasks.filter(t => t && t.id && typeof t.title === 'string').map(cleanTask);
@@ -295,12 +343,20 @@ function normalizeState(raw) {
 
   for (const [key, day] of Object.entries(rawDays)) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !day || typeof day !== 'object' || day.demo) continue;
-    if (day.evening && typeof day.evening === 'object') s.days[key] = { evening: day.evening };
+    if (day.evening && typeof day.evening === 'object') s.days[key] = { evening: cleanEvening(day.evening) };
   }
 
-  if (raw.running && typeof raw.running.start === 'number') {
-    s.running = { distractions: {}, stopAt: null, category: null, ...raw.running };
-    if (!s.running.date) s.running.date = ymd(new Date(s.running.start));
+  if (raw.running && Number.isFinite(raw.running.start)) {
+    const r = raw.running;
+    s.running = {
+      start: r.start,
+      date: DATE_RE.test(r.date || '') ? r.date : ymd(new Date(r.start)),
+      priorityId: safeId(r.priorityId),
+      category: CATEGORIES.some(c => c.id === r.category) ? r.category : null,
+      otherLabel: String(r.otherLabel ?? '').slice(0, 60),
+      distractions: cleanDistractions(r.distractions),
+      stopAt: Number.isFinite(r.stopAt) ? r.stopAt : null,
+    };
     if (!s.running.priorityId && !s.running.category) s.running.category = 'sonstiges';
   }
   if (raw.meta && typeof raw.meta === 'object') {
@@ -409,12 +465,13 @@ function resolveDue(choice, picked) {
   return null;
 }
 
-/** Nächster Termin einer wiederkehrenden Aufgabe */
-function nextOccurrence(repeat) {
+/** Nächster Termin einer wiederkehrenden Aufgabe (ab ihrem eigenen Tag, frühestens ab heute) */
+function nextOccurrence(t) {
   const today = startOfDay(new Date());
-  if (repeat === 'weekly') return ymd(addDays(today, 7));
-  let d = addDays(today, 1);
-  if (repeat === 'weekdays') while (d.getDay() === 0 || d.getDay() === 6) d = addDays(d, 1);
+  const base = t.startDate && t.startDate > ymd(today) ? parseYmd(t.startDate) : today;
+  if (t.repeat === 'weekly') return ymd(addDays(base, 7));
+  let d = addDays(base, 1);
+  if (t.repeat === 'weekdays') while (d.getDay() === 0 || d.getDay() === 6) d = addDays(d, 1);
   return ymd(d);
 }
 
@@ -551,7 +608,7 @@ function buildTargetOptions(includeNew) {
   let html = '';
   if (open.length) {
     html += `<optgroup label="Deine To-dos">${open.map(t =>
-      `<option value="p:${t.id}">${esc(t.title)}</option>`).join('')}</optgroup>`;
+      `<option value="p:${esc(t.id)}">${esc(t.title)}</option>`).join('')}</optgroup>`;
   }
   if (recentTargets.length) {
     html += `<optgroup label="Zuletzt genutzt">${recentTargets.map((t, i) =>
@@ -619,7 +676,7 @@ function renderWeek() {
   if (!hasGoals()) {
     card.innerHTML = `
       <div class="week-empty">
-        <span>Setz dir Wochenziele für Studium und TikTok Shop.</span>
+        <span>Setz dir Wochenziele, zum Beispiel ${AREAS.filter(a => a.id !== 'privat').map(a => `${a.rec} h ${a.label}`).join(' und ')}.</span>
         <button type="button" class="btn btn-small" data-action="goals">Festlegen</button>
       </div>`;
     return;
@@ -657,11 +714,20 @@ function openGoalsSheet() {
 }
 
 function renderGoalsSheet() {
+  const allRec = AREAS.every(a => Math.round((goalDraft[a.id] || 0) / 60) === a.rec);
+  $('#goals-rec-all').disabled = allRec;
+  $('#goals-rec-all').textContent = allRec ? 'Empfehlungen sind eingestellt' : 'Alle Empfehlungen übernehmen';
   $('#goals-list').innerHTML = AREAS.map(a => {
     const h = Math.round((goalDraft[a.id] || 0) / 60);
+    const isRec = h === a.rec;
     return `
       <div class="stepper-row a-${a.id}">
-        <span class="goal-name"><i class="area-dot"></i>${a.label}</span>
+        <div class="goal-info">
+          <span class="goal-name"><i class="area-dot"></i>${a.label}</span>
+          <button type="button" class="rec-btn ${isRec ? 'is-set' : ''}" data-rec="${a.id}" ${isRec ? 'disabled' : ''}
+            aria-label="Empfehlung für ${a.label} übernehmen: ${a.rec} Stunden">Empfohlen: ${a.rec} h${isRec ? ' ✓' : ''}</button>
+          <span class="rec-why">${a.why}</span>
+        </div>
         <div class="stepper">
           <button type="button" data-step="-1" data-area="${a.id}" aria-label="${a.label}: eine Stunde weniger" ${h <= 0 ? 'disabled' : ''}>−</button>
           <strong>${h ? `${h} h` : 'Kein Ziel'}</strong>
@@ -672,6 +738,13 @@ function renderGoalsSheet() {
 }
 
 function onGoalStep(e) {
+  const rec = e.target.closest('button[data-rec]');
+  if (rec) {
+    const a = AREAS.find(x => x.id === rec.dataset.rec);
+    goalDraft[a.id] = a.rec * 60;
+    renderGoalsSheet();
+    return;
+  }
   const btn = e.target.closest('button[data-step]');
   if (!btn) return;
   const id = btn.dataset.area;
@@ -732,7 +805,7 @@ function taskItem(t) {
     : `<button type="button" class="play-btn" data-action="start" aria-label="Fokus für „${esc(t.title)}“ starten">${ICONS.play}</button>`;
 
   return `
-    <li class="prio ${t.done ? 'done' : ''} ${isRunning ? 'is-running' : ''}" data-id="${t.id}">
+    <li class="prio ${t.done ? 'done' : ''} ${isRunning ? 'is-running' : ''}" data-id="${esc(t.id)}">
       <button type="button" class="check" data-action="toggle" aria-pressed="${t.done}"
         aria-label="${t.done ? 'Als offen markieren' : 'Als erledigt markieren'}"><span>${ICONS.check}</span></button>
       <button type="button" class="prio-body" data-action="edit" aria-label="${esc(t.title)} bearbeiten">
@@ -959,17 +1032,27 @@ function onTaskClick(e) {
 }
 
 /** Abhaken bzw. wieder öffnen; wiederkehrende Aufgaben bekommen einen nächsten Termin */
+/** Noch offene Folge-Aufgabe einer wiederkehrenden Aufgabe entfernen */
+function removeSpawned(t) {
+  if (!t.spawnedId) return;
+  state.tasks = state.tasks.filter(x => !(x.id === t.spawnedId && !x.done));
+  t.spawnedId = null;
+}
+
 function toggleTask(t) {
   t.done = !t.done;
   t.doneAt = t.done ? Date.now() : null;
   let spawned = null;
   if (t.done && t.repeat) {
-    const next = nextOccurrence(t.repeat);
+    const next = nextOccurrence(t);
     spawned = cleanTask({
       ...t, id: uid(), createdAt: Date.now(), done: false, doneAt: null,
-      startDate: next, dueDate: t.dueDate ? next : null,
+      startDate: next, dueDate: t.dueDate ? next : null, spawnedId: null,
     });
     state.tasks.push(spawned);
+    t.spawnedId = spawned.id;
+  } else if (!t.done) {
+    removeSpawned(t);
   }
   saveState();
   renderToday();
@@ -979,7 +1062,7 @@ function toggleTask(t) {
       fn: () => {
         t.done = false;
         t.doneAt = null;
-        if (spawned) state.tasks = state.tasks.filter(x => x.id !== spawned.id);
+        removeSpawned(t);
         saveState();
         renderToday();
       },
@@ -1071,17 +1154,17 @@ function saveEdit() {
   const title = $('#edit-title').value.trim();
   if (!t) { closeSheet('#edit-sheet'); return; }
   if (!title) { $('#edit-title').focus(); return; }
+  if (editWhen === 'pick' && !resolveStart('pick', $('#edit-when-date').value)) {
+    toast('Bitte ein Datum ab morgen wählen.');
+    $('#edit-when-date').focus();
+    return;
+  }
   t.title = title;
   t.priority = editPrio;
   t.area = editArea;
   t.estimateMin = $('#edit-est').value ? Number($('#edit-est').value) : null;
   t.dueDate = resolveDue($('#edit-due').value, $('#edit-due-date').value);
   t.repeat = $('#edit-repeat').value || null;
-  if (editWhen === 'pick' && !resolveStart('pick', $('#edit-when-date').value)) {
-    toast('Bitte ein Datum ab morgen wählen.');
-    $('#edit-when-date').focus();
-    return;
-  }
   t.startDate = resolveStart(editWhen, $('#edit-when-date').value);
   if (t.area) state.meta.lastArea = t.area;
   saveState();
@@ -1339,7 +1422,7 @@ function countDistraction(e) {
 
 function stopFocus() {
   if (!state.running) return;
-  state.running.stopAt = Date.now();
+  if (!state.running.stopAt) state.running.stopAt = Date.now();
   saveState();
   tick();
   openFinishSheet();
@@ -1420,8 +1503,10 @@ function saveFinish() {
 }
 
 function resumeFocus() {
-  if (!state.running) return;
-  state.running.stopAt = null;
+  const r = state.running;
+  if (!r) return;
+  if (r.stopAt) r.start += Date.now() - r.stopAt;   // Pause im Abschluss-Fenster nicht mitzählen
+  r.stopAt = null;
   saveState();
   closeSheet('#finish-sheet');
   startTicking();
@@ -1522,7 +1607,7 @@ function blockItem(x, opts = {}) {
     ? new Date(x.start).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' })
     : fmtClock(x.end);
   return `
-    <li class="block" data-id="${x.id}">
+    <li class="block" data-id="${esc(x.id)}">
       <div class="block-time">${fmtClock(x.start)}<span>${sub}</span></div>
       <div class="block-body">
         ${opts.compact ? '' : `<div class="block-title">${esc(title)}</div>`}
@@ -1752,7 +1837,10 @@ function importData(e) {
     state = normalizeState(data);
     saveState();
     stopTicking();
-    if (state.running && !state.running.stopAt) startTicking();
+    if (state.running) {
+      if (state.running.stopAt) openFinishSheet();
+      else startTicking();
+    }
     renderAuswertung();
     toast('Daten wiederhergestellt');
   };
@@ -1808,6 +1896,10 @@ function bindEvents() {
   on('#week-card', 'click', e => { if (e.target.closest('[data-action="goals"]')) openGoalsSheet(); });
   on('#btn-goals', 'click', openGoalsSheet);
   on('#goals-list', 'click', onGoalStep);
+  on('#goals-rec-all', 'click', () => {
+    for (const a of AREAS) goalDraft[a.id] = a.rec * 60;
+    renderGoalsSheet();
+  });
   on('#goals-save', 'click', saveGoals);
   on('#goals-cancel', 'click', () => closeSheet('#goals-sheet'));
 

@@ -2274,3 +2274,45 @@ body.timer-running .tab[data-view="heute"]:not(.is-active) { color: var(--timer)
 .ev-note { min-height: 96px; }
 
 .plan-tomorrow-btn { margin-top: 18px; }
+
+
+/* Wochenziele: Empfehlungen */
+.goals-rec-all { margin-top: 14px; }
+.goals-rec-all:disabled { opacity: 0.6; }
+
+.stepper-row { align-items: flex-start; padding: 14px 0; }
+.stepper-row .stepper { margin-top: 2px; }
+
+.goal-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.rec-btn {
+  min-height: 32px;
+  margin-left: 16px;
+  padding: 4px 10px;
+  border: 1px dashed color-mix(in srgb, var(--a) 60%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--a);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rec-btn.is-set {
+  border-style: solid;
+  background: color-mix(in srgb, var(--a) 14%, transparent);
+  opacity: 1;
+}
+
+.rec-why {
+  margin-left: 16px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-3);
+}
